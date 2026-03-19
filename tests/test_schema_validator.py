@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from src.core.schema_validator import NarrativeValidationError, validate_narrative_document
+from src.core.consistency_engine import enrich
+from src.core.schema_validator import ENRICHED_SCHEMA_PATH, NarrativeValidationError, validate_narrative_document
 from src.core.story_engine import StoryEngine
 
 
@@ -34,3 +35,11 @@ def test_validate_narrative_document_invalid_type() -> None:
 
     with pytest.raises(NarrativeValidationError, match="type attendu integer"):
         validate_narrative_document(narrative)
+
+
+def test_validate_enriched_narrative_document_valid_case() -> None:
+    """Un document enrichi conforme doit être accepté par le schéma enrichi."""
+    narrative = _valid_narrative()
+    enriched_narrative = enrich(narrative)["enriched_doc"]
+
+    validate_narrative_document(enriched_narrative, schema_path=ENRICHED_SCHEMA_PATH)

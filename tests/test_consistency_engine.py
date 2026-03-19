@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from src.core.consistency_engine import build_consistency_report, enrich, has_blocking_violations
+from src.core.schema_validator import ENRICHED_SCHEMA_PATH, validate_narrative_document
 from src.core.story_engine import StoryEngine
 
 
@@ -108,3 +109,11 @@ def test_enrich_keeps_narrative_sort_order_stable() -> None:
 
     assert after_pairs == before_pairs
     assert after_shot_pairs == before_shot_pairs
+
+
+def test_enrich_outputs_document_valid_against_enriched_schema() -> None:
+    narrative = _narrative()
+
+    enriched = enrich(narrative)["enriched_doc"]
+
+    validate_narrative_document(enriched, schema_path=ENRICHED_SCHEMA_PATH)
