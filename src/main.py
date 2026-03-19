@@ -3,18 +3,30 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
+from typing import Callable, TypeVar
 
 from src.assembly.video_assembler import assemble as assemble_video
 from src.core.consistency_engine import enrich, has_blocking_violations
 from src.core.input_loader import load_prompt
 from src.core.io_utils import write_json_utf8
 from src.core.logger import log_step
-from src.core.schema_validator import NarrativeValidationError, validate_narrative_file
-from src.core.schema_validator import validate_narrative_document
+from src.core.schema_validator import NarrativeValidationError, validate_narrative_document, validate_narrative_file
 from src.core.story_engine import StoryEngine
 from src.generation.asset_generator import generate as generate_assets
 from src.generation.shot_generator import generate as generate_shots
+from src.providers import (
+    BaseProvider,
+    MockAssetProvider,
+    MockNarrativeProvider,
+    MockShotProvider,
+    ProviderError,
+    ProviderRateLimit,
+    ProviderTimeout,
+)
+
+T = TypeVar("T")
 
 
 def ensure_dirs() -> None:
@@ -39,6 +51,33 @@ def _run_validation_cli(args: list[str]) -> int:
         return 1
 
 
+def _execute_with_retry_and_fallback(
+    action: Callable[[BaseProvider], T],
+    provider: BaseProvider,
+    fallback_provider: BaseProvider | None = None,
+    retries: int = 1,
+) -> T:
+    """Exécute une action provider avec retry sur erreurs transitoires + fallback."""
+    last_error: Exception | None = None
+
+    for attempt in range(retries + 1):
+        try:
+            return action(provider)
+        except (ProviderTimeout, ProviderRateLimit) as exc:
+            last_error = exc
+            if attempt < retries:
+                time.sleep(0.01)
+                continue
+            break
+
+    if fallback_provider is not None:
+        return action(fallback_provider)
+
+    if last_error is not None:
+        raise last_error
+    raise ProviderError("Erreur provider inconnue")
+
+
 def _run_pipeline(args: list[str]) -> int:
     """Démarre le pipeline Narratech de bout en bout."""
     ensure_dirs()
@@ -49,9 +88,22 @@ def _run_pipeline(args: list[str]) -> int:
     prompt_path = Path("outputs/prompt.txt")
     prompt_path.write_text(prompt + "\n", encoding="utf-8")
 
+    # Providers injectés par défaut (mock local)
+    story_provider = MockNarrativeProvider()
+    story_fallback_provider = MockNarrativeProvider()
+    asset_provider = MockAssetProvider()
+    asset_fallback_provider = MockAssetProvider()
+    shot_provider = MockShotProvider()
+    shot_fallback_provider = MockShotProvider()
+
     # 2) StoryEngine
     log_step("génération story")
-    narrative = StoryEngine().generate(prompt)
+    narrative = _execute_with_retry_and_fallback(
+        action=lambda active_provider: StoryEngine(provider=active_provider).generate(prompt),
+        provider=story_provider,
+        fallback_provider=story_fallback_provider,
+        retries=1,
+    )
 
     # Validation schéma juste après génération
     log_step("validation schéma narratif")
@@ -71,11 +123,21 @@ def _run_pipeline(args: list[str]) -> int:
 
     # 4) AssetGenerator
     log_step("génération assets")
-    asset_refs = generate_assets(enriched_narrative)
+    asset_refs = _execute_with_retry_and_fallback(
+        action=lambda active_provider: generate_assets(enriched_narrative, provider=active_provider),
+        provider=asset_provider,
+        fallback_provider=asset_fallback_provider,
+        retries=1,
+    )
 
     # 5) ShotGenerator
     log_step("génération shots")
-    clips = generate_shots(enriched_narrative)
+    clips = _execute_with_retry_and_fallback(
+        action=lambda active_provider: generate_shots(enriched_narrative, provider=active_provider),
+        provider=shot_provider,
+        fallback_provider=shot_fallback_provider,
+        retries=1,
+    )
 
     # 6) VideoAssembler
     log_step("assemblage final")

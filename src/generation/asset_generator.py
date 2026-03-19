@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from src.core.io_utils import write_json_utf8
+from src.providers import BaseProvider, MockAssetProvider, ProviderRequest
 
 
 ASSETS_ROOT = Path("assets")
@@ -26,15 +27,8 @@ def _write_asset_file(asset_uri: str, payload: dict) -> None:
     write_json_utf8(path, payload)
 
 
-def generate(scene_doc: dict) -> list[dict]:
-    """Génère des placeholders d'assets et réinjecte les références dans `output.asset_refs`.
-
-    Règles:
-    - un placeholder par personnage;
-    - au moins un placeholder d'environnement;
-    - chaque ref suit le contrat `{id, type, uri}`;
-    - les fichiers assets sont écrits dans `assets/`.
-    """
+def generate(scene_doc: dict, provider: BaseProvider | None = None) -> list[dict]:
+    """Génère les placeholders d'assets via un provider injectable."""
     if not isinstance(scene_doc, dict):
         raise TypeError("scene_doc doit être un dictionnaire")
 
@@ -46,56 +40,40 @@ def generate(scene_doc: dict) -> list[dict]:
     asset_dir = ASSETS_ROOT / request_id
     asset_dir.mkdir(parents=True, exist_ok=True)
 
-    asset_refs: list[dict] = []
+    active_provider = provider or MockAssetProvider()
+    response = active_provider.generate(
+        ProviderRequest(
+            request_id=request_id,
+            payload={"request_id": request_id, "output": output},
+            timeout_sec=10.0,
+        )
+    )
 
-    characters = output.get("characters", [])
-    for index, character in enumerate(characters, start=1):
-        if not isinstance(character, dict):
+    provider_assets = response.data.get("assets")
+    if not isinstance(provider_assets, list):
+        raise ValueError("Le provider d'assets doit retourner data.assets sous forme de liste")
+
+    asset_refs: list[dict] = []
+    for index, asset in enumerate(provider_assets, start=1):
+        if not isinstance(asset, dict):
             continue
 
-        char_id = str(character.get("id") or f"char_{index}")
-        char_name = str(character.get("name") or char_id)
-        file_name = f"character_{_slugify(char_name)}_{index:02d}.json"
-        uri = f"local://{(asset_dir / file_name).as_posix()}"
+        file_name = str(asset.get("file_name") or f"asset_{index:03d}.json")
+        uri = f"local://{(asset_dir / (_slugify(file_name).replace('.json', '') + '.json')).as_posix()}"
 
         asset_ref = {
-            "id": f"asset_character_{index:03d}",
-            "type": "character",
+            "id": str(asset.get("id") or f"asset_{index:03d}"),
+            "type": str(asset.get("type") or "generic"),
             "uri": uri,
+            "provider_trace": response.provider_trace,
+            "latency_ms": response.latency_ms,
+            "cost_estimate": response.cost_estimate,
+            "model_name": response.model_name,
         }
         asset_refs.append(asset_ref)
 
-        _write_asset_file(
-            uri,
-            {
-                "kind": "character",
-                "character_id": char_id,
-                "character_name": char_name,
-                "placeholder": True,
-            },
-        )
-
-    scenes = output.get("scenes", [])
-    scene_summary = ""
-    if scenes and isinstance(scenes[0], dict):
-        scene_summary = str(scenes[0].get("summary") or "")
-
-    env_uri = f"local://{(asset_dir / 'environment_main_01.json').as_posix()}"
-    environment_ref = {
-        "id": "asset_environment_001",
-        "type": "environment",
-        "uri": env_uri,
-    }
-    asset_refs.append(environment_ref)
-
-    _write_asset_file(
-        env_uri,
-        {
-            "kind": "environment",
-            "scene_summary": scene_summary,
-            "placeholder": True,
-        },
-    )
+        payload = asset.get("payload") if isinstance(asset.get("payload"), dict) else {}
+        _write_asset_file(uri, payload)
 
     write_json_utf8(asset_dir / "assets_manifest.json", {"request_id": request_id, "assets": asset_refs})
 
