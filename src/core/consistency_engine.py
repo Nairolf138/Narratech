@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
-from pathlib import Path
+
+from src.core.io_utils import write_json_utf8
 
 # Contraintes visuelles fixes injectées dans chaque shot.
 VISUAL_CONSTRAINTS = {
@@ -51,11 +51,6 @@ def enrich(scene_doc: dict) -> dict:
         shot["consistency_constraints"] = deepcopy(VISUAL_CONSTRAINTS)
         shot["enriched_prompt"] = enriched_prompt
 
-    output_path = Path("outputs/scene_enriched.json")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(enriched_doc, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    write_json_utf8("outputs/scene_enriched.json", enriched_doc)
 
     return enriched_doc

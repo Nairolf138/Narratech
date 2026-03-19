@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from uuid import uuid4
+
+from src.core.io_utils import write_json_utf8
 
 
 class StoryEngine:
@@ -107,10 +107,5 @@ class StoryEngine:
             ],
         }
 
-        output_path = Path("outputs/scene.json")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(
-            json.dumps(narrative, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        write_json_utf8("outputs/scene.json", narrative)
         return narrative

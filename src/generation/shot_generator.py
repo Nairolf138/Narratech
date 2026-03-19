@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from src.core.io_utils import write_json_utf8
+
 
 SHOTS_ROOT = Path("outputs/shots")
 
@@ -77,8 +79,11 @@ def generate(scene_doc: dict) -> list[dict]:
                 "path": file_path.as_posix(),
                 "shot_id": shot_id,
                 "duration": duration,
+                "order": order,
             }
         )
+
+    write_json_utf8(SHOTS_ROOT / "shots_manifest.json", {"clips": clips, "count": len(clips)})
 
     output["clips"] = clips
     return clips
