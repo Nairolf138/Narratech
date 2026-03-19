@@ -37,6 +37,18 @@ def ensure_dirs() -> None:
         Path(path).mkdir(parents=True, exist_ok=True)
 
 
+
+
+def _assert_required_artifacts() -> None:
+    """Vérifie la présence et la structure minimale des artefacts obligatoires."""
+    required_paths = (
+        Path("outputs/manifest.json"),
+        Path("outputs/shots/shots_manifest.json"),
+    )
+    for required_path in required_paths:
+        if not required_path.exists():
+            raise RuntimeError(f"Artefact obligatoire manquant: {required_path.as_posix()}")
+
 def _run_validation_cli(args: list[str]) -> int:
     """Valide un fichier narratif depuis la ligne de commande."""
     if len(args) != 1:
@@ -211,6 +223,7 @@ def _run_pipeline(args: list[str]) -> int:
             "final_video_path": final_video_path,
         }
         write_json_utf8("outputs/manifest.json", manifest)
+        _assert_required_artifacts()
 
         _transition(PipelineStage.COMPLETED, "Pipeline terminé avec succès")
         log_step("fin")

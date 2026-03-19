@@ -1,0 +1,50 @@
+"""Tests de contrats des artefacts obligatoires du pipeline."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from src.main import _run_pipeline
+
+
+def _read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_pipeline_generates_required_manifests(isolated_workdir: Path) -> None:
+    exit_code = _run_pipeline([])
+    assert exit_code == 0
+
+    manifest_path = isolated_workdir / "outputs" / "manifest.json"
+    shots_manifest_path = isolated_workdir / "outputs" / "shots" / "shots_manifest.json"
+
+    assert manifest_path.exists()
+    assert shots_manifest_path.exists()
+
+    manifest = _read_json(manifest_path)
+    shots_manifest = _read_json(shots_manifest_path)
+
+    assert manifest["shots_manifest_file"] == "outputs/shots/shots_manifest.json"
+    assert manifest["request_id"]
+    assert shots_manifest["request_id"] == manifest["request_id"]
+    assert shots_manifest["count"] > 0
+    assert len(shots_manifest["clips"]) == shots_manifest["count"]
+
+
+def test_pipeline_fails_if_shots_manifest_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.generation.shot_generator import generate as original_generate_shots
+
+    def _generate_shots_without_manifest(*args, **kwargs):
+        clips = original_generate_shots(*args, **kwargs)
+        (Path("outputs/shots") / "shots_manifest.json").unlink(missing_ok=True)
+        return clips
+
+    monkeypatch.setattr("src.main.generate_shots", _generate_shots_without_manifest)
+
+    with pytest.raises(RuntimeError, match="Artefact obligatoire manquant"):
+        _run_pipeline([])

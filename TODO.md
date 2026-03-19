@@ -33,3 +33,11 @@
 5. **T-007 (P0, M)** — Implémenter Shot Generator v1.
 
 > Règle d’ordonnancement: exécuter les tâches P0 dépendantes dès que leurs prérequis sont validés; décaler P1 après stabilisation du pipeline de base.
+
+
+## Quality Gate CI (bloquant)
+- [x] Validation schéma en CI.
+- [x] Tests unitaires core en CI.
+- [x] Smoke pipeline en CI.
+- [x] Seuils de couverture minimaux sur `src/core` et `src/generation`.
+- [x] Échec CI si `outputs/manifest.json` ou `outputs/shots/shots_manifest.json` manquent/cassés.
