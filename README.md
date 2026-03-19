@@ -236,3 +236,105 @@ Pas :
 Nairolf138
 
 Quelqu’un qui a décidé consciemment d'ajouter de la difficulte a sa vie pour construire un studio de cinéma avec du code.
+
+---
+
+## 📐 Schema Contract
+
+Le contrat V1 est défini dans `schemas/narrative.v1.schema.json` et couvre :
+
+- input minimal (`prompt`) + options (`duration_sec`, `style`, `language`)
+- output structuré (`synopsis`, `characters[]`, `scenes[]`, `shots[]`, `asset_refs[]`, `audio_plan`, `render_plan`)
+- contraintes V1 (`1 scène`, `1–2 personnages`, `30–60s`)
+- traçabilité (`request_id`, `schema_version`, `provider_trace`)
+
+### ✅ Exemple valide
+
+```json
+{
+  "request_id": "req_20260319_001",
+  "schema_version": "narrative.v1",
+  "input": {
+    "prompt": "post-apocalyptic bunker, two survivors, tension",
+    "duration_sec": 45,
+    "style": "cinematic",
+    "language": "fr"
+  },
+  "output": {
+    "synopsis": "Deux survivants hésitent à ouvrir une porte blindée après un bruit extérieur.",
+    "characters": [
+      { "id": "c1", "name": "Mara", "role": "leader" },
+      { "id": "c2", "name": "Ilan", "role": "technician" }
+    ],
+    "scenes": [
+      { "id": "s1", "summary": "Confrontation silencieuse dans le bunker", "duration_sec": 45 }
+    ],
+    "shots": [
+      { "id": "sh1", "scene_id": "s1", "description": "Gros plan sur la poignée qui tremble", "duration_sec": 6.5 },
+      { "id": "sh2", "scene_id": "s1", "description": "Champ/contre-champ tendu entre les deux survivants", "duration_sec": 8.0 }
+    ],
+    "asset_refs": [
+      { "id": "a_char_mara", "type": "character", "uri": "s3://assets/mara_v1.png" },
+      { "id": "a_env_bunker", "type": "environment", "uri": "s3://assets/bunker_v3.png" }
+    ],
+    "audio_plan": {
+      "voiceover": { "enabled": true, "language": "fr", "script": "N'ouvre pas. Pas encore." },
+      "ambience": { "enabled": true, "description": "vent lointain, vibration métallique" }
+    },
+    "render_plan": {
+      "resolution": "1920x1080",
+      "fps": 24,
+      "format": "mp4",
+      "transitions": ["cut", "fade"]
+    }
+  },
+  "provider_trace": [
+    {
+      "stage": "story_engine",
+      "provider": "openai",
+      "model": "gpt-4.1",
+      "trace_id": "tr_story_001",
+      "latency_ms": 1420
+    },
+    {
+      "stage": "shot_generator",
+      "provider": "sora",
+      "model": "sora-v1",
+      "trace_id": "tr_shot_002",
+      "latency_ms": 29850
+    }
+  ]
+}
+```
+
+### ❌ Exemple invalide
+
+```json
+{
+  "request_id": "",
+  "schema_version": "narrative.v2",
+  "input": {
+    "prompt": "",
+    "duration_sec": 90
+  },
+  "output": {
+    "synopsis": "",
+    "characters": [
+      { "id": "c1", "name": "A", "role": "r" },
+      { "id": "c2", "name": "B", "role": "r" },
+      { "id": "c3", "name": "C", "role": "r" }
+    ],
+    "scenes": [
+      { "id": "s1", "summary": "...", "duration_sec": 40 },
+      { "id": "s2", "summary": "...", "duration_sec": 40 }
+    ],
+    "shots": [],
+    "asset_refs": [],
+    "audio_plan": {},
+    "render_plan": {}
+  },
+  "provider_trace": []
+}
+```
+
+Pourquoi invalide : `request_id` et `prompt` vides, mauvaise version (`narrative.v2`), `duration_sec` hors limites, 3 personnages, 2 scènes, `shots` vide, `audio_plan`/`render_plan` incomplets, et `provider_trace` vide.
