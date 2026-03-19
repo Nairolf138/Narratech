@@ -400,6 +400,14 @@ python -m pip install --upgrade pip
 python main.py
 ```
 
+### Lancer le smoke test local
+```bash
+# depuis la racine du dépôt (dans le même venv)
+python -m pytest -k smoke
+```
+
+Ce smoke test exécute un flux de bout en bout avec un pipeline mock local, sans appel réseau.
+
 ### Configuration minimale
 - Variables d'environnement : aucune requise.
 - Fichiers requis : aucun fichier de configuration externe.
