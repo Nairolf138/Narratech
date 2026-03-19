@@ -1,4 +1,4 @@
-# 🎬 Cineforge — Generative Narrative Engine
+# 🎬 Narratech — Generative Narrative Engine
 
 Prototype d’un système capable de générer automatiquement une mini-séquence vidéo narrative cohérente à partir d’un simple prompt utilisateur.
 
