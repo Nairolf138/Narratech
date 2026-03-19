@@ -35,7 +35,7 @@ def _duration(clip: dict) -> float:
     return 0.0
 
 
-def assemble(clips: list[dict], output_dir: str) -> str:
+def assemble(clips: list[dict], output_dir: str, audio_artifacts: list[dict] | None = None) -> str:
     """Assemble les clips triés par index narratif et écrit un fichier final.
 
     Le fichier produit est un placeholder textuel de l'assemblage vidéo.
@@ -51,6 +51,17 @@ def assemble(clips: list[dict], output_dir: str) -> str:
     final_dir = Path(output_dir)
     final_dir.mkdir(parents=True, exist_ok=True)
 
+
+    if audio_artifacts is None:
+        audio_artifacts = []
+
+    if not isinstance(audio_artifacts, list):
+        raise TypeError("audio_artifacts doit être une liste de dictionnaires")
+
+    for artifact in audio_artifacts:
+        if not isinstance(artifact, dict):
+            raise TypeError("chaque artefact audio doit être un dictionnaire")
+
     indexed_clips = [
         (_shot_index(clip, fallback_index=i), clip)
         for i, clip in enumerate(clips, start=1)
@@ -58,6 +69,7 @@ def assemble(clips: list[dict], output_dir: str) -> str:
     sorted_clips = [clip for _, clip in sorted(indexed_clips, key=lambda item: item[0])]
 
     shot_lines: list[str] = []
+    audio_lines: list[str] = []
     total_duration = 0.0
 
     for fallback_index, clip in enumerate(sorted_clips, start=1):
@@ -66,6 +78,12 @@ def assemble(clips: list[dict], output_dir: str) -> str:
         duration = _duration(clip)
         total_duration += duration
         shot_lines.append(f"- shot_index: {shot_index}, shot_id: {shot_id}, duration_sec: {duration:.2f}")
+
+    for artifact in audio_artifacts:
+        kind = str(artifact.get("kind") or "audio")
+        enabled = bool(artifact.get("enabled"))
+        path = str(artifact.get("path") or "")
+        audio_lines.append(f"- kind: {kind}, enabled: {str(enabled).lower()}, path: {path}")
 
     content = "\n".join(
         [
@@ -76,6 +94,9 @@ def assemble(clips: list[dict], output_dir: str) -> str:
             *shot_lines,
             "",
             f"total_duration_sec: {total_duration:.2f}",
+            "",
+            "audio_tracks:",
+            *audio_lines,
         ]
     )
 

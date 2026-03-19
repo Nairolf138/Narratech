@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from src.main import ensure_dirs
+from src.assembly.audio_engine import build_from_audio_plan
 from src.assembly.video_assembler import assemble as assemble_video
 from src.core.consistency_engine import enrich
 from src.core.story_engine import StoryEngine
@@ -38,7 +39,8 @@ def test_smoke_pipeline_mock_e2e(
     enriched_narrative = consistency_result["enriched_doc"]
     asset_refs = generate_assets(enriched_narrative)
     clips = generate_shots(enriched_narrative)
-    final_video_path = assemble_video(clips, "outputs/final")
+    audio_artifacts = build_from_audio_plan(enriched_narrative)
+    final_video_path = assemble_video(clips, "outputs/final", audio_artifacts=audio_artifacts)
 
     elapsed = time.perf_counter() - start
 
@@ -53,6 +55,8 @@ def test_smoke_pipeline_mock_e2e(
     assert asset_refs
     assert isinstance(clips, list)
     assert clips
+    assert isinstance(audio_artifacts, list)
+    assert len(audio_artifacts) == 2
 
     final_path = Path(final_video_path)
     assert final_path.exists()
@@ -61,3 +65,4 @@ def test_smoke_pipeline_mock_e2e(
     assert (isolated_workdir / "outputs" / "scene.json").exists()
     assert (isolated_workdir / "outputs" / "scene_enriched.json").exists()
     assert (isolated_workdir / "outputs" / "shots" / "shots_manifest.json").exists()
+    assert (isolated_workdir / "outputs" / "audio" / "audio_manifest.json").exists()
