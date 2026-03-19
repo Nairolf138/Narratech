@@ -189,6 +189,35 @@
               "enriched_prompt": {
                 "type": "string",
                 "minLength": 1
+              },
+              "consistency_packet": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "consistency_packet_version",
+                  "characters",
+                  "visual_continuity",
+                  "narrative_continuity",
+                  "quality_gates"
+                ],
+                "properties": {
+                  "consistency_packet_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "characters": {
+                    "type": "array"
+                  },
+                  "visual_continuity": {
+                    "type": "object"
+                  },
+                  "narrative_continuity": {
+                    "type": "object"
+                  },
+                  "quality_gates": {
+                    "type": "object"
+                  }
+                }
               }
             }
           }
