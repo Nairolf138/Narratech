@@ -1,12 +1,42 @@
 # 🧠 DECISIONS — Narratech
 
-## Règles
+## 🔧 Provider Abstraction Policy
 
-1. Pas de feature sans scène complète
-2. Pas d’UI avant CLI
-3. Cohérence > qualité
-4. Input/output clair pour chaque module
-5. Pipeline complet prioritaire
+1. Aucun provider ne doit être utilisé directement dans la logique métier
+2. Tous les providers doivent passer par un adapter
+3. Les modules utilisent des interfaces abstraites :
+   - NarrativeProvider
+   - VideoProvider
+   - ImageProvider
+   - AudioProvider
 
-## Philosophie
-Orchestrateur, pas modèle IA.
+---
+
+## 🔁 Remplacement des providers
+
+- Changer de provider ne doit PAS casser :
+  - le schéma narratif
+  - le pipeline
+  - les modules internes
+
+---
+
+## ⚙️ Architecture
+
+Narratech est :
+- un orchestrateur
+- un système modulaire
+- indépendant des APIs externes
+
+---
+
+## 🚫 Interdictions
+
+- Pas de logique spécifique à Sora / Runway dans le core
+- Pas de dépendance forte à un provider
+
+---
+
+## 🎯 Priorité
+
+Cohérence système > performance brute
