@@ -15,8 +15,7 @@ Ce projet ne vise pas la perfection visuelle, mais la **cohérence narrative et 
 ---
 
 ## 🧠 Concept
-
-Cineforge est un **orchestrateur**, pas un modèle d’IA.
+Narratech est un **orchestrateur**, pas un modèle d’IA.
 
 Il connecte plusieurs briques existantes :
 
