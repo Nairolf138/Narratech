@@ -37,6 +37,8 @@ def test_pipeline_state_tracks_nominal_transitions(isolated_workdir: Path) -> No
         "completed",
     ]
     assert state["errors"] == []
+    assert state["degraded_shots"] == 0
+    assert state["degraded_ratio"] == 0.0
 
     request_id = state["request_id"]
     assert request_id.startswith("req_")
@@ -89,3 +91,89 @@ def test_pipeline_state_tracks_failure_transition(
     assert state["errors"]
     assert transitions[-1]["to_stage"] == "failed"
     assert "Violations bloquantes" in transitions[-1]["reason"]
+
+
+def test_pipeline_state_done_with_warnings_when_degraded_ratio_under_threshold(
+    isolated_workdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DegradedOnceShotProvider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def configure(self, config: dict) -> None:  # pragma: no cover - interface compatibility
+            _ = config
+
+        def generate(self, request):
+            from src.providers import ProviderRateLimit, ProviderResponse
+
+            self.calls += 1
+            shots = request.payload.get("output", {}).get("shots", [])
+            first_shot_id = shots[0].get("id") if shots and isinstance(shots[0], dict) else "unknown"
+            if first_shot_id == "shot_001":
+                raise ProviderRateLimit("degraded shot")
+            return ProviderResponse(
+                data={
+                    "clips": [
+                        {
+                            "shot_id": first_shot_id,
+                            "duration": 2.0,
+                            "description_enriched": "ok",
+                        }
+                    ]
+                },
+                provider_trace={"provider": "stub-shot"},
+                latency_ms=1,
+                cost_estimate=0.0,
+                model_name="stub",
+            )
+
+        def healthcheck(self):
+            from src.providers import ProviderHealth
+
+            return ProviderHealth(ok=True)
+
+    monkeypatch.setattr("src.main.MockShotProvider", DegradedOnceShotProvider)
+    (isolated_workdir / ".narratech_degraded_ratio_threshold").write_text("0.5\n", encoding="utf-8")
+
+    exit_code = _run_pipeline([])
+    assert exit_code == 0
+
+    state = _read_json(isolated_workdir / "outputs" / "pipeline_state.json")
+    manifest = _read_json(isolated_workdir / "outputs" / "manifest.json")
+
+    assert state["current_stage"] == "done_with_warnings"
+    assert 0 < state["degraded_ratio"] <= 0.5
+    assert manifest["quality"]["degraded_ratio"] == state["degraded_ratio"]
+
+
+def test_pipeline_state_fails_when_degraded_ratio_over_threshold(
+    isolated_workdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class AlwaysFailShotProvider:
+        def configure(self, config: dict) -> None:  # pragma: no cover - interface compatibility
+            _ = config
+
+        def generate(self, request):
+            from src.providers import ProviderRateLimit
+
+            _ = request
+            raise ProviderRateLimit("provider unavailable")
+
+        def healthcheck(self):
+            from src.providers import ProviderHealth
+
+            return ProviderHealth(ok=True)
+
+    monkeypatch.setattr("src.main.MockShotProvider", AlwaysFailShotProvider)
+    (isolated_workdir / ".narratech_degraded_ratio_threshold").write_text("0.1\n", encoding="utf-8")
+
+    exit_code = _run_pipeline([])
+    assert exit_code == 1
+
+    state = _read_json(isolated_workdir / "outputs" / "pipeline_state.json")
+    assert state["current_stage"] == "failed"
+    assert state["failed_stage"] == "shots_generated"
+    assert state["degraded_ratio"] > 0.1
+    assert state["retry_events"]

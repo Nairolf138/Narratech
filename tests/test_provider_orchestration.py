@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from src.core.pipeline_state import PipelineRuntimeState, PipelineStage
-from src.main import _execute_with_retry_and_fallback
-from src.providers import MockAssetProvider, ProviderRateLimit, ProviderRequest, ProviderTimeout
+from src.main import _execute_with_retry_and_fallback, _generate_shots_with_targeted_retries
+from src.providers import MockAssetProvider, MockShotProvider, ProviderRateLimit, ProviderRequest, ProviderTimeout
 
 
 def test_execute_with_retry_recovers_after_timeout() -> None:
@@ -78,3 +78,35 @@ def test_execute_with_retry_raises_when_no_fallback() -> None:
         assert False, "Expected ProviderRateLimit"
     else:
         assert False, "Expected a provider exception"
+
+
+def test_targeted_shot_retries_fallback_to_placeholder() -> None:
+    scene_doc = {
+        "request_id": "req_shot_1",
+        "output": {
+            "shots": [
+                {"id": "shot_001", "scene_id": "scene_1", "description": "A", "duration_sec": 3.0},
+                {"id": "shot_002", "scene_id": "scene_1", "description": "B", "duration_sec": 3.0},
+            ]
+        },
+    }
+    state = PipelineRuntimeState(request_id="req_shot_1")
+
+    primary = MockShotProvider()
+    primary.configure({"failure_sequence": ["rate_limit", "rate_limit", "rate_limit", "rate_limit", "rate_limit"]})
+    secondary = MockShotProvider()
+    secondary.configure({"failure_sequence": ["rate_limit", "rate_limit", "rate_limit", "rate_limit"]})
+
+    clips, quality = _generate_shots_with_targeted_retries(
+        scene_doc=scene_doc,
+        state=state,
+        primary_provider=primary,
+        secondary_provider=secondary,
+        asset_provider=MockAssetProvider(),
+    )
+
+    assert len(clips) == 2
+    assert quality["degraded_shots"] >= 1
+    assert any(clip.get("quality_flag") == "degraded" for clip in clips)
+    assert state.retry_events
+    assert {event["scope_type"] for event in state.retry_events} >= {"shot", "asset", "scene"}

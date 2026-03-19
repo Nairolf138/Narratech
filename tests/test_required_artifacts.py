@@ -61,14 +61,14 @@ def test_pipeline_generates_audio_outputs(isolated_workdir: Path) -> None:
 def test_pipeline_fails_if_shots_manifest_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from src.generation.shot_generator import generate as original_generate_shots
+    from src.main import _generate_shots_with_targeted_retries as original_generate_shots
 
     def _generate_shots_without_manifest(*args, **kwargs):
-        clips = original_generate_shots(*args, **kwargs)
+        result = original_generate_shots(*args, **kwargs)
         (Path("outputs/shots") / "shots_manifest.json").unlink(missing_ok=True)
-        return clips
+        return result
 
-    monkeypatch.setattr("src.main.generate_shots", _generate_shots_without_manifest)
+    monkeypatch.setattr("src.main._generate_shots_with_targeted_retries", _generate_shots_without_manifest)
 
     with pytest.raises(RuntimeError, match="Artefact obligatoire manquant"):
         _run_pipeline([])
