@@ -5,7 +5,9 @@ from __future__ import annotations
 from uuid import uuid4
 
 from src.core.io_utils import write_json_utf8
-from src.providers import BaseProvider, MockNarrativeProvider, ProviderRequest, ProviderResponse
+from src.providers import MockNarrativeProvider, ProviderRequest, ProviderResponse
+from src.providers.adapter import call_with_normalized_errors
+from src.providers.contracts import NarrativeProviderContract
 
 
 class StoryEngine:
@@ -13,7 +15,7 @@ class StoryEngine:
 
     schema_version = "narrative.v1"
 
-    def __init__(self, provider: BaseProvider | None = None) -> None:
+    def __init__(self, provider: NarrativeProviderContract | None = None) -> None:
         self.provider = provider or MockNarrativeProvider()
 
     def _build_response(self, prompt: str, request_id: str | None = None) -> ProviderResponse:
@@ -22,7 +24,13 @@ class StoryEngine:
             payload={"prompt": prompt},
             timeout_sec=8.0,
         )
-        return self.provider.generate(request)
+        return call_with_normalized_errors(
+            lambda: (
+                self.provider.generate_narrative(request)
+                if hasattr(self.provider, "generate_narrative")
+                else self.provider.generate(request)
+            )
+        )
 
     def generate(self, prompt: str, request_id: str | None = None) -> dict:
         """Génère une narration minimale valide et la sauvegarde sur disque."""

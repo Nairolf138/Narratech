@@ -6,7 +6,9 @@ import re
 from pathlib import Path
 
 from src.core.io_utils import write_json_utf8
-from src.providers import BaseProvider, MockAssetProvider, ProviderRequest
+from src.providers import MockAssetProvider, ProviderRequest
+from src.providers.adapter import call_with_normalized_errors
+from src.providers.contracts import AssetProviderContract
 
 
 ASSETS_ROOT = Path("assets")
@@ -27,7 +29,7 @@ def _write_asset_file(asset_uri: str, payload: dict) -> None:
     write_json_utf8(path, payload)
 
 
-def generate(scene_doc: dict, provider: BaseProvider | None = None) -> list[dict]:
+def generate(scene_doc: dict, provider: AssetProviderContract | None = None) -> list[dict]:
     """Génère les placeholders d'assets via un provider injectable."""
     if not isinstance(scene_doc, dict):
         raise TypeError("scene_doc doit être un dictionnaire")
@@ -41,11 +43,23 @@ def generate(scene_doc: dict, provider: BaseProvider | None = None) -> list[dict
     asset_dir.mkdir(parents=True, exist_ok=True)
 
     active_provider = provider or MockAssetProvider()
-    response = active_provider.generate(
-        ProviderRequest(
-            request_id=request_id,
-            payload={"request_id": request_id, "output": output},
-            timeout_sec=10.0,
+    response = call_with_normalized_errors(
+        lambda: (
+            active_provider.generate_assets(
+                ProviderRequest(
+                    request_id=request_id,
+                    payload={"request_id": request_id, "output": output},
+                    timeout_sec=10.0,
+                )
+            )
+            if hasattr(active_provider, "generate_assets")
+            else active_provider.generate(
+                ProviderRequest(
+                    request_id=request_id,
+                    payload={"request_id": request_id, "output": output},
+                    timeout_sec=10.0,
+                )
+            )
         )
     )
 

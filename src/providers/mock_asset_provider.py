@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping
+from uuid import uuid4
 
+from src.providers.adapter import call_with_normalized_errors
 from src.providers.base import (
     BaseProvider,
     ProviderAuthError,
@@ -15,9 +17,10 @@ from src.providers.base import (
     ProviderResponse,
     ProviderTimeout,
 )
+from src.providers.contracts import AssetProviderContract
 
 
-class MockAssetProvider(BaseProvider):
+class MockAssetProvider(BaseProvider, AssetProviderContract):
     """Produit des références d'assets déterministes à partir du document enrichi."""
 
     def __init__(self) -> None:
@@ -42,7 +45,10 @@ class MockAssetProvider(BaseProvider):
         if mode == "auth":
             raise ProviderAuthError("Mock asset auth error")
 
-    def generate(self, request: ProviderRequest) -> ProviderResponse:
+    def generate_assets(self, request: ProviderRequest) -> ProviderResponse:
+        return call_with_normalized_errors(lambda: self._generate_assets_impl(request))
+
+    def _generate_assets_impl(self, request: ProviderRequest) -> ProviderResponse:
         self._simulate_failure_if_needed()
 
         output = request.payload.get("output")
@@ -92,13 +98,23 @@ class MockAssetProvider(BaseProvider):
         )
 
         latency_ms = int((time.perf_counter() - start) * 1000)
+        model_name = "mock-asset-v1"
         return ProviderResponse(
             data={"request_id": request_id, "assets": assets},
-            provider_trace={"stage": "asset_generation", "provider": "mock_asset_provider"},
+            provider_trace={
+                "stage": "asset_generation",
+                "provider": "mock_asset_provider",
+                "model": model_name,
+                "trace_id": f"trace_{uuid4().hex[:12]}",
+            },
             latency_ms=latency_ms,
             cost_estimate=0.001,
-            model_name="mock-asset-v1",
+            model_name=model_name,
         )
+
+    def generate(self, request: ProviderRequest) -> ProviderResponse:
+        """Compatibilité avec l'interface provider générique existante."""
+        return self.generate_assets(request)
 
     def healthcheck(self) -> ProviderHealth:
         return ProviderHealth(ok=True, details={"provider": "mock_asset_provider"})

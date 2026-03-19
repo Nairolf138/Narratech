@@ -6,7 +6,9 @@ import re
 from pathlib import Path
 
 from src.core.io_utils import write_json_utf8
-from src.providers import BaseProvider, MockShotProvider, ProviderRequest
+from src.providers import MockShotProvider, ProviderRequest
+from src.providers.adapter import call_with_normalized_errors
+from src.providers.contracts import ShotProviderContract
 
 
 SHOTS_ROOT = Path("outputs/shots")
@@ -18,7 +20,7 @@ def _slugify(value: str) -> str:
     return cleaned.strip("_") or "shot"
 
 
-def generate(scene_doc: dict, provider: BaseProvider | None = None) -> list[dict]:
+def generate(scene_doc: dict, provider: ShotProviderContract | None = None) -> list[dict]:
     """Écrit un fichier placeholder par shot via un provider injectable."""
     if not isinstance(scene_doc, dict):
         raise TypeError("scene_doc doit être un dictionnaire")
@@ -31,11 +33,23 @@ def generate(scene_doc: dict, provider: BaseProvider | None = None) -> list[dict
 
     request_id = str(scene_doc.get("request_id", "request_unknown"))
     active_provider = provider or MockShotProvider()
-    response = active_provider.generate(
-        ProviderRequest(
-            request_id=request_id,
-            payload={"request_id": request_id, "output": output},
-            timeout_sec=10.0,
+    response = call_with_normalized_errors(
+        lambda: (
+            active_provider.generate_shots(
+                ProviderRequest(
+                    request_id=request_id,
+                    payload={"request_id": request_id, "output": output},
+                    timeout_sec=10.0,
+                )
+            )
+            if hasattr(active_provider, "generate_shots")
+            else active_provider.generate(
+                ProviderRequest(
+                    request_id=request_id,
+                    payload={"request_id": request_id, "output": output},
+                    timeout_sec=10.0,
+                )
+            )
         )
     )
 

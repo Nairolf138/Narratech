@@ -6,6 +6,7 @@ import time
 from collections.abc import Mapping
 from uuid import uuid4
 
+from src.providers.adapter import call_with_normalized_errors
 from src.providers.base import (
     BaseProvider,
     ProviderAuthError,
@@ -16,9 +17,10 @@ from src.providers.base import (
     ProviderResponse,
     ProviderTimeout,
 )
+from src.providers.contracts import NarrativeProviderContract
 
 
-class MockNarrativeProvider(BaseProvider):
+class MockNarrativeProvider(BaseProvider, NarrativeProviderContract):
     """Provider narratif local et déterministe sans dépendance externe."""
 
     def __init__(self) -> None:
@@ -43,7 +45,10 @@ class MockNarrativeProvider(BaseProvider):
         if mode == "auth":
             raise ProviderAuthError("Mock narrative auth error")
 
-    def generate(self, request: ProviderRequest) -> ProviderResponse:
+    def generate_narrative(self, request: ProviderRequest) -> ProviderResponse:
+        return call_with_normalized_errors(lambda: self._generate_narrative_impl(request))
+
+    def _generate_narrative_impl(self, request: ProviderRequest) -> ProviderResponse:
         self._simulate_failure_if_needed()
 
         prompt = request.payload.get("prompt")
@@ -127,10 +132,11 @@ class MockNarrativeProvider(BaseProvider):
         }
 
         latency_ms = int((time.perf_counter() - start) * 1000)
+        model_name = "mock-narrative-v1"
         trace = {
             "stage": "story_generation",
             "provider": "mock_narrative_provider",
-            "model": "mock-narrative-v1",
+            "model": model_name,
             "trace_id": f"trace_{uuid4().hex[:12]}",
         }
         return ProviderResponse(
@@ -138,8 +144,12 @@ class MockNarrativeProvider(BaseProvider):
             provider_trace=trace,
             latency_ms=latency_ms,
             cost_estimate=0.002,
-            model_name="mock-narrative-v1",
+            model_name=model_name,
         )
+
+    def generate(self, request: ProviderRequest) -> ProviderResponse:
+        """Compatibilité avec l'interface provider générique existante."""
+        return self.generate_narrative(request)
 
     def healthcheck(self) -> ProviderHealth:
         return ProviderHealth(ok=True, details={"provider": "mock_narrative_provider"})

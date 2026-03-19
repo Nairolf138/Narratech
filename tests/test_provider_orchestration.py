@@ -1,10 +1,70 @@
-"""Tests d'orchestration retry/fallback pour les providers."""
+"""Tests d'orchestration retry/fallback et de contrat providers."""
 
 from __future__ import annotations
 
+import pytest
+
 from src.core.pipeline_state import PipelineRuntimeState, PipelineStage
 from src.main import _execute_with_retry_and_fallback, _generate_shots_with_targeted_retries
-from src.providers import MockAssetProvider, MockShotProvider, ProviderRateLimit, ProviderRequest, ProviderTimeout
+from src.providers import (
+    AssetProviderContract,
+    MockAssetProvider,
+    MockNarrativeProvider,
+    MockShotProvider,
+    NarrativeProviderContract,
+    ProviderInvalidResponse,
+    ProviderRateLimit,
+    ProviderRequest,
+    ProviderTimeout,
+    ShotProviderContract,
+)
+from src.providers.adapter import call_with_normalized_errors
+
+
+@pytest.mark.parametrize(
+    ("provider", "method_name", "payload", "expected_key"),
+    [
+        (MockNarrativeProvider(), "generate_narrative", {"prompt": "Un prompt valide"}, "output"),
+        (MockAssetProvider(), "generate_assets", {"request_id": "req_contract", "output": {"characters": [], "scenes": []}}, "assets"),
+        (MockShotProvider(), "generate_shots", {"request_id": "req_contract", "output": {"shots": []}}, "clips"),
+    ],
+)
+def test_provider_contracts_return_expected_types_and_observability(
+    provider: NarrativeProviderContract | AssetProviderContract | ShotProviderContract,
+    method_name: str,
+    payload: dict,
+    expected_key: str,
+) -> None:
+    response = getattr(provider, method_name)(
+        ProviderRequest(request_id="req_contract", payload=payload, timeout_sec=1.0)
+    )
+
+    assert isinstance(response.data, dict)
+    assert expected_key in response.data
+    assert isinstance(response.provider_trace, dict)
+    assert response.provider_trace.get("provider")
+    assert response.provider_trace.get("stage")
+    assert response.provider_trace.get("trace_id")
+    assert response.provider_trace.get("model")
+    assert isinstance(response.model_name, str) and response.model_name
+    assert isinstance(response.latency_ms, int)
+    assert isinstance(response.cost_estimate, float)
+
+
+def test_provider_contracts_raise_expected_error_types() -> None:
+    with pytest.raises(ProviderInvalidResponse):
+        MockNarrativeProvider().generate_narrative(ProviderRequest(request_id="req_err_1", payload={}))
+
+    with pytest.raises(ProviderInvalidResponse):
+        MockAssetProvider().generate_assets(ProviderRequest(request_id="req_err_2", payload={"request_id": "x"}))
+
+    with pytest.raises(ProviderInvalidResponse):
+        MockShotProvider().generate_shots(ProviderRequest(request_id="req_err_3", payload={"output": {}}))
+
+
+def test_provider_error_adapter_normalizes_runtime_error() -> None:
+    with pytest.raises(ProviderTimeout):
+        call_with_normalized_errors(lambda: (_ for _ in ()).throw(RuntimeError("network timeout")))
 
 
 def test_execute_with_retry_recovers_after_timeout() -> None:

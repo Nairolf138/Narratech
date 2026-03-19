@@ -35,6 +35,8 @@ from src.providers import (
     ProviderRequest,
     ProviderTimeout,
 )
+from src.providers.adapter import call_with_normalized_errors
+from src.providers.contracts import AssetProviderContract, ShotProviderContract
 
 T = TypeVar("T")
 DEFAULT_DEGRADED_RATIO_THRESHOLD = 0.2
@@ -165,11 +167,23 @@ def _try_generate_single_shot(
                     "shots": [shot],
                 },
             }
-            response = provider.generate(
-                ProviderRequest(
-                    request_id=request_id,
-                    payload={"request_id": request_id, "output": shot_doc["output"]},
-                    timeout_sec=10.0,
+            response = call_with_normalized_errors(
+                lambda: (
+                    provider.generate_shots(
+                        ProviderRequest(
+                            request_id=request_id,
+                            payload={"request_id": request_id, "output": shot_doc["output"]},
+                            timeout_sec=10.0,
+                        )
+                    )
+                    if hasattr(provider, "generate_shots")
+                    else provider.generate(
+                        ProviderRequest(
+                            request_id=request_id,
+                            payload={"request_id": request_id, "output": shot_doc["output"]},
+                            timeout_sec=10.0,
+                        )
+                    )
                 )
             )
             provider_clips = response.data.get("clips") if isinstance(response.data, dict) else None
@@ -225,9 +239,9 @@ def _generate_shots_with_targeted_retries(
     *,
     scene_doc: dict,
     state: PipelineRuntimeState,
-    primary_provider: BaseProvider,
-    secondary_provider: BaseProvider,
-    asset_provider: BaseProvider,
+    primary_provider: ShotProviderContract,
+    secondary_provider: ShotProviderContract,
+    asset_provider: AssetProviderContract,
 ) -> tuple[list[dict], dict]:
     output = scene_doc.get("output")
     if not isinstance(output, dict):

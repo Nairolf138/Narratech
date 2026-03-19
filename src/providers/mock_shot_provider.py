@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping
+from uuid import uuid4
 
+from src.providers.adapter import call_with_normalized_errors
 from src.providers.base import (
     BaseProvider,
     ProviderAuthError,
@@ -15,9 +17,10 @@ from src.providers.base import (
     ProviderResponse,
     ProviderTimeout,
 )
+from src.providers.contracts import ShotProviderContract
 
 
-class MockShotProvider(BaseProvider):
+class MockShotProvider(BaseProvider, ShotProviderContract):
     """Produit un plan de clips déterministe à partir des shots enrichis."""
 
     def __init__(self) -> None:
@@ -42,7 +45,10 @@ class MockShotProvider(BaseProvider):
         if mode == "auth":
             raise ProviderAuthError("Mock shot auth error")
 
-    def generate(self, request: ProviderRequest) -> ProviderResponse:
+    def generate_shots(self, request: ProviderRequest) -> ProviderResponse:
+        return call_with_normalized_errors(lambda: self._generate_shots_impl(request))
+
+    def _generate_shots_impl(self, request: ProviderRequest) -> ProviderResponse:
         self._simulate_failure_if_needed()
 
         output = request.payload.get("output")
@@ -74,13 +80,23 @@ class MockShotProvider(BaseProvider):
             )
 
         latency_ms = int((time.perf_counter() - start) * 1000)
+        model_name = "mock-shot-v1"
         return ProviderResponse(
             data={"clips": clips},
-            provider_trace={"stage": "shot_generation", "provider": "mock_shot_provider"},
+            provider_trace={
+                "stage": "shot_generation",
+                "provider": "mock_shot_provider",
+                "model": model_name,
+                "trace_id": f"trace_{uuid4().hex[:12]}",
+            },
             latency_ms=latency_ms,
             cost_estimate=0.0015,
-            model_name="mock-shot-v1",
+            model_name=model_name,
         )
+
+    def generate(self, request: ProviderRequest) -> ProviderResponse:
+        """Compatibilité avec l'interface provider générique existante."""
+        return self.generate_shots(request)
 
     def healthcheck(self) -> ProviderHealth:
         return ProviderHealth(ok=True, details={"provider": "mock_shot_provider"})
