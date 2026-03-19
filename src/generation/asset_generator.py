@@ -65,6 +65,7 @@ def generate(scene_doc: dict, provider: BaseProvider | None = None) -> list[dict
             "id": str(asset.get("id") or f"asset_{index:03d}"),
             "type": str(asset.get("type") or "generic"),
             "uri": uri,
+            "request_id": request_id,
             "provider_trace": response.provider_trace,
             "latency_ms": response.latency_ms,
             "cost_estimate": response.cost_estimate,

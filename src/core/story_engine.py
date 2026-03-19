@@ -16,20 +16,20 @@ class StoryEngine:
     def __init__(self, provider: BaseProvider | None = None) -> None:
         self.provider = provider or MockNarrativeProvider()
 
-    def _build_response(self, prompt: str) -> ProviderResponse:
+    def _build_response(self, prompt: str, request_id: str | None = None) -> ProviderResponse:
         request = ProviderRequest(
-            request_id=f"req_{uuid4().hex}",
+            request_id=request_id or f"req_{uuid4().hex}",
             payload={"prompt": prompt},
             timeout_sec=8.0,
         )
         return self.provider.generate(request)
 
-    def generate(self, prompt: str) -> dict:
+    def generate(self, prompt: str, request_id: str | None = None) -> dict:
         """Génère une narration minimale valide et la sauvegarde sur disque."""
         if not prompt or not prompt.strip():
             raise ValueError("Le prompt doit être non vide.")
 
-        response = self._build_response(prompt.strip())
+        response = self._build_response(prompt.strip(), request_id=request_id)
         narrative = dict(response.data)
         provider_trace = dict(response.provider_trace)
         provider_trace.setdefault("stage", "story_generation")
