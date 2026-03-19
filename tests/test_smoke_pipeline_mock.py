@@ -34,7 +34,8 @@ def test_smoke_pipeline_mock_e2e(
 
     ensure_dirs()
     narrative = StoryEngine().generate(minimal_prompt)
-    enriched_narrative = enrich(narrative)
+    consistency_result = enrich(narrative)
+    enriched_narrative = consistency_result["enriched_doc"]
     asset_refs = generate_assets(enriched_narrative)
     clips = generate_shots(enriched_narrative)
     final_video_path = assemble_video(clips, "outputs/final")

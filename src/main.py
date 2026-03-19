@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from src.assembly.video_assembler import assemble as assemble_video
-from src.core.consistency_engine import enrich
+from src.core.consistency_engine import enrich, has_blocking_violations
 from src.core.input_loader import load_prompt
 from src.core.io_utils import write_json_utf8
 from src.core.logger import log_step
@@ -59,7 +59,15 @@ def _run_pipeline(args: list[str]) -> int:
 
     # 3) ConsistencyEngine
     log_step("enrichissement cohérence")
-    enriched_narrative = enrich(narrative)
+    consistency_result = enrich(narrative)
+    enriched_narrative = consistency_result["enriched_doc"]
+    consistency_report = consistency_result["consistency_report"]
+    consistency_report_path = write_json_utf8("outputs/consistency_report.json", consistency_report)
+
+    if has_blocking_violations(consistency_report):
+        log_step("échec cohérence bloquante")
+        print(f"Pipeline interrompu: violations bloquantes détectées ({consistency_report_path}).")
+        return 1
 
     # 4) AssetGenerator
     log_step("génération assets")
@@ -80,6 +88,7 @@ def _run_pipeline(args: list[str]) -> int:
         "asset_refs": asset_refs,
         "clips": clips,
         "final_video_path": final_video_path,
+        "consistency_report": consistency_report,
     }
 
     scene_path = write_json_utf8("outputs/scene.json", pipeline_artifacts["narrative"])
@@ -92,6 +101,7 @@ def _run_pipeline(args: list[str]) -> int:
         "prompt_file": prompt_path.as_posix(),
         "scene_file": scene_path.as_posix(),
         "scene_enriched_file": scene_enriched_path.as_posix(),
+        "consistency_report_file": consistency_report_path.as_posix(),
         "assets_dir": "assets",
         "asset_refs": [asset.get("uri") for asset in asset_refs if isinstance(asset, dict)],
         "shots_dir": "outputs/shots",
