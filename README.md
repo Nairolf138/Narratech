@@ -128,6 +128,7 @@ find . \
 DECISIONS.md
 README.md
 SPEC.md
+main.py
 TODO.md
 assets/
   .gitkeep
@@ -376,3 +377,41 @@ Le contrat V1 est défini dans `schemas/narrative.v1.schema.json` et couvre :
 ```
 
 Pourquoi invalide : `request_id` et `prompt` vides, mauvaise version (`narrative.v2`), `duration_sec` hors limites, 3 personnages, 2 scènes, `shots` vide, `audio_plan`/`render_plan` incomplets, et `provider_trace` vide.
+
+
+## 🧪 Exécution locale propre
+
+### Prérequis
+- Python 3.11+ (testé avec Python 3.12).
+- Aucun service externe requis pour le run minimal.
+- Dépendances Python déclarées par le projet : **aucune** (`requirements*.txt`, `pyproject.toml`, `setup.py` absents).
+
+### Commandes exactes (environnement vierge)
+```bash
+# depuis la racine du dépôt
+python3 -m venv .venv_clean
+source .venv_clean/bin/activate
+
+# installation stricte des dépendances déclarées
+# (aucune dépendance projet à installer)
+python -m pip install --upgrade pip
+
+# exécution minimale
+python main.py
+```
+
+### Configuration minimale
+- Variables d'environnement : aucune requise.
+- Fichiers requis : aucun fichier de configuration externe.
+- Arguments : optionnels ; sans argument, le prompt par défaut interne est utilisé.
+
+### Résultat attendu
+- Code de sortie `0`.
+- Logs de démarrage avec les étapes `[Narratech] ...`.
+- Artefacts générés :
+  - `outputs/prompt.txt`
+  - `outputs/scene.json`
+  - `outputs/scene_enriched.json`
+  - `outputs/shots/shots_manifest.json`
+  - `outputs/final/final_video.txt`
+  - `outputs/manifest.json`
