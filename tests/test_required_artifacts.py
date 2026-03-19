@@ -34,6 +34,30 @@ def test_pipeline_generates_required_manifests(isolated_workdir: Path) -> None:
     assert len(shots_manifest["clips"]) == shots_manifest["count"]
 
 
+def test_pipeline_generates_audio_outputs(isolated_workdir: Path) -> None:
+    exit_code = _run_pipeline([])
+    assert exit_code == 0
+
+    audio_manifest_path = isolated_workdir / "outputs" / "audio" / "audio_manifest.json"
+    voice_path = isolated_workdir / "outputs" / "audio" / "voiceover.txt"
+    ambience_path = isolated_workdir / "outputs" / "audio" / "ambience.txt"
+    final_video_path = isolated_workdir / "outputs" / "final" / "final_video.txt"
+
+    assert audio_manifest_path.exists()
+    assert voice_path.exists()
+    assert ambience_path.exists()
+
+    audio_manifest = _read_json(audio_manifest_path)
+    assert audio_manifest["source_contract"] == "output.audio_plan"
+    assert audio_manifest["count"] == 2
+    assert len(audio_manifest["artifacts"]) == 2
+
+    final_video_content = final_video_path.read_text(encoding="utf-8")
+    assert "audio_tracks:" in final_video_content
+    assert "voiceover.txt" in final_video_content
+    assert "ambience.txt" in final_video_content
+
+
 def test_pipeline_fails_if_shots_manifest_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

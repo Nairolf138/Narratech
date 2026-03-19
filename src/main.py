@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable, TypeVar
 from uuid import uuid4
 
+from src.assembly.audio_engine import build_from_audio_plan
 from src.assembly.video_assembler import assemble as assemble_video
 from src.core.consistency_engine import enrich, has_blocking_violations
 from src.core.input_loader import load_prompt
@@ -33,7 +34,7 @@ T = TypeVar("T")
 
 def ensure_dirs() -> None:
     """Garantit l'existence des dossiers de sortie du pipeline."""
-    for path in ("outputs", "outputs/shots", "outputs/final", "assets"):
+    for path in ("outputs", "outputs/shots", "outputs/audio", "outputs/final", "assets"):
         Path(path).mkdir(parents=True, exist_ok=True)
 
 
@@ -186,9 +187,13 @@ def _run_pipeline(args: list[str]) -> int:
         )
         _transition(PipelineStage.SHOTS_GENERATED, "Shots générés")
 
-        # 6) VideoAssembler
+        # 6) AudioEngine
+        log_step("génération audio")
+        audio_artifacts = build_from_audio_plan(enriched_narrative)
+
+        # 7) VideoAssembler
         log_step("assemblage final")
-        final_video_path = assemble_video(clips, "outputs/final")
+        final_video_path = assemble_video(clips, "outputs/final", audio_artifacts=audio_artifacts)
         _transition(PipelineStage.FINAL_ASSEMBLED, "Assemblage final terminé")
 
         # Passage explicite des artefacts entre modules.
@@ -198,6 +203,7 @@ def _run_pipeline(args: list[str]) -> int:
             "enriched_narrative": enriched_narrative,
             "asset_refs": asset_refs,
             "clips": clips,
+            "audio_artifacts": audio_artifacts,
             "final_video_path": final_video_path,
             "consistency_report": consistency_report,
         }
@@ -219,6 +225,9 @@ def _run_pipeline(args: list[str]) -> int:
             "shots_dir": "outputs/shots",
             "shot_files": [clip.get("path") for clip in clips if isinstance(clip, dict)],
             "shots_manifest_file": "outputs/shots/shots_manifest.json",
+            "audio_dir": "outputs/audio",
+            "audio_manifest_file": "outputs/audio/audio_manifest.json",
+            "audio_files": [artifact.get("path") for artifact in audio_artifacts if isinstance(artifact, dict)],
             "final_dir": "outputs/final",
             "final_video_path": final_video_path,
         }
