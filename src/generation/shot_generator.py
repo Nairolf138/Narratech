@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from src.core.io_utils import write_json_utf8
+from src.providers import BaseProvider, MockShotProvider, ProviderRequest
 
 
 SHOTS_ROOT = Path("outputs/shots")
@@ -17,26 +18,8 @@ def _slugify(value: str) -> str:
     return cleaned.strip("_") or "shot"
 
 
-def _safe_duration(raw_duration: object) -> float:
-    """Retourne une durée float positive, ou 0.0 si invalide."""
-    try:
-        duration = float(raw_duration)
-    except (TypeError, ValueError):
-        return 0.0
-    return duration if duration >= 0 else 0.0
-
-
-def generate(scene_doc: dict) -> list[dict]:
-    """Écrit un fichier placeholder par shot et retourne les clips minimaux.
-
-    Chaque fichier inclut:
-    - shot_id
-    - order
-    - description enrichie
-    - durée
-
-    Retourne une liste de clips avec: path, shot_id, duration.
-    """
+def generate(scene_doc: dict, provider: BaseProvider | None = None) -> list[dict]:
+    """Écrit un fichier placeholder par shot via un provider injectable."""
     if not isinstance(scene_doc, dict):
         raise TypeError("scene_doc doit être un dictionnaire")
 
@@ -44,24 +27,31 @@ def generate(scene_doc: dict) -> list[dict]:
     if not isinstance(output, dict):
         raise ValueError("scene_doc.output doit être un objet")
 
-    shots = output.get("shots")
-    if not isinstance(shots, list):
-        raise ValueError("scene_doc.output.shots doit être une liste")
-
     SHOTS_ROOT.mkdir(parents=True, exist_ok=True)
 
+    request_id = str(scene_doc.get("request_id", "request_unknown"))
+    active_provider = provider or MockShotProvider()
+    response = active_provider.generate(
+        ProviderRequest(
+            request_id=request_id,
+            payload={"request_id": request_id, "output": output},
+            timeout_sec=10.0,
+        )
+    )
+
+    provider_clips = response.data.get("clips")
+    if not isinstance(provider_clips, list):
+        raise ValueError("Le provider de shots doit retourner data.clips sous forme de liste")
+
     clips: list[dict] = []
-    for order, shot in enumerate(shots, start=1):
-        if not isinstance(shot, dict):
+    for order, clip in enumerate(provider_clips, start=1):
+        if not isinstance(clip, dict):
             continue
 
-        shot_id = str(shot.get("id") or f"shot_{order:03d}")
-        duration = _safe_duration(shot.get("duration_sec"))
-
-        base_description = str(shot.get("description") or "")
-        enriched_description = str(shot.get("enriched_prompt") or base_description)
-        slug_source = base_description or enriched_description or shot_id
-        slug = _slugify(slug_source)[:60]
+        shot_id = str(clip.get("shot_id") or f"shot_{order:03d}")
+        duration = float(clip.get("duration") or 0.0)
+        enriched_description = str(clip.get("description_enriched") or "")
+        slug = _slugify(shot_id)[:60]
 
         file_name = f"shot_{order:03d}_{slug}.txt"
         file_path = SHOTS_ROOT / file_name
@@ -80,6 +70,10 @@ def generate(scene_doc: dict) -> list[dict]:
                 "shot_id": shot_id,
                 "duration": duration,
                 "order": order,
+                "provider_trace": response.provider_trace,
+                "latency_ms": response.latency_ms,
+                "cost_estimate": response.cost_estimate,
+                "model_name": response.model_name,
             }
         )
 

@@ -11,6 +11,9 @@ from .base import (
     ProviderResponse,
     ProviderTimeout,
 )
+from .mock_asset_provider import MockAssetProvider
+from .mock_narrative_provider import MockNarrativeProvider
+from .mock_shot_provider import MockShotProvider
 
 __all__ = [
     "BaseProvider",
@@ -22,4 +25,7 @@ __all__ = [
     "ProviderAuthError",
     "ProviderRateLimit",
     "ProviderInvalidResponse",
+    "MockNarrativeProvider",
+    "MockAssetProvider",
+    "MockShotProvider",
 ]
