@@ -24,6 +24,7 @@ class PipelineStage(StrEnum):
     SHOTS_GENERATED = "shots_generated"
     FINAL_ASSEMBLED = "final_assembled"
     COMPLETED = "completed"
+    DONE_WITH_WARNINGS = "done_with_warnings"
     FAILED = "failed"
 
 
@@ -47,7 +48,17 @@ class PipelineRuntimeState:
     transitions: list[PipelineTransitionEvent] = field(default_factory=list)
     errors: list[dict[str, str]] = field(default_factory=list)
     retries: dict[str, int] = field(default_factory=dict)
+    retry_events: list[dict[str, str | int]] = field(default_factory=list)
+    degraded_shots: int = 0
+    total_shots: int = 0
     failed_stage: str | None = None
+
+    @property
+    def degraded_ratio(self) -> float:
+        """Retourne le ratio de shots dégradés."""
+        if self.total_shots <= 0:
+            return 0.0
+        return self.degraded_shots / self.total_shots
 
     def transition(self, *, to_stage: PipelineStage, reason: str) -> PipelineTransitionEvent:
         """Applique une transition d'état et retourne l'événement associé."""
@@ -73,6 +84,33 @@ class PipelineRuntimeState:
             }
         )
 
+    def register_retry_event(
+        self,
+        *,
+        stage: PipelineStage,
+        reason: str,
+        scope_type: str,
+        scope_id: str,
+        attempt: int,
+    ) -> None:
+        """Enregistre le détail d'un retry ciblé."""
+        self.register_retry(stage=stage, reason=reason)
+        self.retry_events.append(
+            {
+                "timestamp": _utc_now_iso(),
+                "stage": stage.value,
+                "scope_type": scope_type,
+                "scope_id": scope_id,
+                "attempt": attempt,
+                "reason": reason,
+            }
+        )
+
+    def set_degradation(self, *, total_shots: int, degraded_shots: int) -> None:
+        """Met à jour les métriques de qualité dégradée."""
+        self.total_shots = max(0, total_shots)
+        self.degraded_shots = max(0, min(degraded_shots, self.total_shots))
+
     def register_error(self, *, stage: PipelineStage, reason: str) -> None:
         """Enregistre une erreur métier/technique."""
         self.errors.append(
@@ -97,6 +135,10 @@ class PipelineRuntimeState:
             "failed_stage": self.failed_stage,
             "errors": list(self.errors),
             "retries": dict(self.retries),
+            "retry_events": list(self.retry_events),
+            "degraded_shots": self.degraded_shots,
+            "total_shots": self.total_shots,
+            "degraded_ratio": self.degraded_ratio,
             "transitions": [
                 {
                     "request_id": event.request_id,
