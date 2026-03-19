@@ -423,3 +423,50 @@ Ce smoke test exécute un flux de bout en bout avec un pipeline mock local, sans
   - `outputs/shots/shots_manifest.json`
   - `outputs/final/final_video.txt`
   - `outputs/manifest.json`
+
+---
+
+## ✅ Validation du schéma narratif
+
+Narratech valide désormais les documents narratifs contre `schemas/narrative.v1.schema.json`.
+
+### Commande CLI
+
+```bash
+python main.py validate outputs/scene.json
+```
+
+(équivalent à `narratech validate outputs/scene.json` si un exécutable `narratech` est configuré dans votre environnement).
+
+### Exemples
+
+- **Document valide**
+
+```bash
+$ python main.py validate outputs/scene.json
+Document narratif valide: outputs/scene.json
+```
+
+- **Champ obligatoire manquant**
+
+```bash
+$ python main.py validate outputs/scene_missing.json
+Document narratif invalide: $: champ obligatoire manquant 'request_id'.
+```
+
+- **Type invalide**
+
+```bash
+$ python main.py validate outputs/scene_invalid.json
+Document narratif invalide: $.output.render_plan.fps: type attendu integer, valeur reçue str.
+```
+
+### Codes de retour
+
+- `0` : validation réussie.
+- `1` : validation échouée (fichier invalide, JSON malformé, fichier introuvable, ou non-conformité au schéma).
+
+### Validation automatique dans le pipeline
+
+Après `StoryEngine().generate(...)`, Narratech exécute une validation de schéma avant les étapes suivantes (`ConsistencyEngine`, `AssetGenerator`, etc.).
+Si la validation échoue, le pipeline s’arrête immédiatement avec un code de retour `1`.
