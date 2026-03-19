@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 
 from src.core.io_utils import write_json_utf8
 
@@ -14,6 +15,12 @@ VISUAL_CONSTRAINTS = {
 }
 
 REQUIRED_VISUAL_CONSTRAINT_KEYS = tuple(VISUAL_CONSTRAINTS.keys())
+DEFAULT_QUALITY_GATES = {
+    "traits_min_overlap": 0.7,
+    "lighting_min_similarity": 0.8,
+    "max_tension_jump": 3,
+    "max_anachronism_count": 0,
+}
 
 
 def _make_issue(
@@ -33,27 +40,118 @@ def _make_issue(
     }
 
 
-def _apply_enrichment(output: dict) -> None:
+def _normalize_token(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def build_consistency_packet(scene_doc: dict) -> dict:
+    """Construit un consistency packet aligné avec docs/consistency_rules.md."""
+    output = scene_doc.get("output")
+    if not isinstance(output, dict):
+        raise ValueError("scene_doc.output doit être un objet.")
+
     characters = output.get("characters", [])
+    scenes = output.get("scenes", [])
     shots = output.get("shots", [])
 
-    character_ids = [char.get("id") for char in characters if isinstance(char, dict) and char.get("id")]
+    scene_id = ""
+    if scenes and isinstance(scenes[0], dict):
+        first_scene_id = scenes[0].get("id")
+        if isinstance(first_scene_id, str):
+            scene_id = first_scene_id
+
+    first_shot_scene_id = scene_id
+    if shots and isinstance(shots[0], dict):
+        shot_scene_id = shots[0].get("scene_id")
+        if isinstance(shot_scene_id, str):
+            first_shot_scene_id = shot_scene_id
+
+    packet_characters: list[dict] = []
+    for idx, character in enumerate(characters):
+        if not isinstance(character, dict):
+            continue
+
+        char_id = character.get("id")
+        if not isinstance(char_id, str) or not char_id.strip():
+            char_id = f"char_{idx + 1:03d}"
+        display_name = character.get("name") if isinstance(character.get("name"), str) else char_id
+        role = character.get("role") if isinstance(character.get("role"), str) else "personnage"
+
+        packet_characters.append(
+            {
+                "character_id": char_id,
+                "display_name": display_name,
+                "allowed_aliases": [],
+                "core_traits": [_normalize_token(role)],
+                "signature_clothing": [],
+                "color_palette": deepcopy(VISUAL_CONSTRAINTS["color_palette"]),
+            }
+        )
+
+    action_sequence = [
+        shot.get("description", "")
+        for shot in shots
+        if isinstance(shot, dict) and isinstance(shot.get("description"), str) and shot.get("description", "").strip()
+    ]
+
+    return {
+        "consistency_packet_version": "1.0",
+        "project_id": scene_doc.get("request_id", "unknown_project"),
+        "sequence_id": scene_doc.get("request_id", "unknown_sequence"),
+        "scene_id": first_shot_scene_id,
+        "characters": packet_characters,
+        "visual_continuity": {
+            "lighting_profile": VISUAL_CONSTRAINTS["lighting_style"],
+            "period_style": "contemporary",
+            "mood_tone": "tension contenue",
+            "camera_style": VISUAL_CONSTRAINTS["camera_style"],
+            "period_banned_items": [],
+        },
+        "narrative_continuity": {
+            "arc_goal": output.get("synopsis", ""),
+            "scene_goal": scenes[0].get("summary", "") if scenes and isinstance(scenes[0], dict) else "",
+            "tension_level": 5,
+            "action_sequence": action_sequence,
+            "twist_flag": False,
+            "transition_reason": "",
+        },
+        "quality_gates": deepcopy(DEFAULT_QUALITY_GATES),
+    }
+
+
+def _apply_enrichment(scene_doc: dict) -> None:
+    output = scene_doc.get("output", {})
+    if not isinstance(output, dict):
+        return
+    shots = output.get("shots", [])
+    if not isinstance(shots, list):
+        return
+
+    base_packet = build_consistency_packet(scene_doc)
+
+    character_ids = [
+        char.get("character_id")
+        for char in base_packet.get("characters", [])
+        if isinstance(char, dict) and isinstance(char.get("character_id"), str)
+    ]
     character_ids_text = ", ".join(character_ids) if character_ids else "none"
 
     for shot in shots:
         if not isinstance(shot, dict):
             continue
 
+        shot_packet = deepcopy(base_packet)
+        shot_packet["scene_id"] = shot.get("scene_id", base_packet.get("scene_id"))
+        shot["consistency_packet"] = shot_packet
+        shot["consistency_constraints"] = deepcopy(VISUAL_CONSTRAINTS)
+
         base_description = shot.get("description", "")
-        enriched_prompt = (
+        shot["enriched_prompt"] = (
             f"{base_description}\n"
             f"[character_ids: {character_ids_text}]\n"
             f"[scene_id: {shot.get('scene_id', '')}]\n"
             "Respect strict de la continuité inter-scènes et des éléments visuels imposés."
         )
-
-        shot["consistency_constraints"] = deepcopy(VISUAL_CONSTRAINTS)
-        shot["enriched_prompt"] = enriched_prompt
 
 
 def _rule_character_ids(output: dict) -> list[dict]:
@@ -200,6 +298,309 @@ def _rule_visual_constraints(output: dict) -> list[dict]:
     return issues
 
 
+def _rule_consistency_packet_presence(output: dict) -> list[dict]:
+    issues: list[dict] = []
+    shots = output.get("shots", [])
+    required_fields = (
+        "consistency_packet_version",
+        "characters",
+        "visual_continuity",
+        "narrative_continuity",
+        "quality_gates",
+    )
+
+    for shot_idx, shot in enumerate(shots):
+        if not isinstance(shot, dict):
+            continue
+
+        packet = shot.get("consistency_packet")
+        location = f"output.shots[{shot_idx}].consistency_packet"
+        if not isinstance(packet, dict):
+            issues.append(
+                _make_issue(
+                    rule_id="consistency_packet_presence",
+                    severity="error",
+                    location=location,
+                    message="Consistency packet absent sur le shot.",
+                    suggested_fix="Injecter un consistency_packet complet dans chaque shot.",
+                )
+            )
+            continue
+
+        for field in required_fields:
+            if field not in packet:
+                issues.append(
+                    _make_issue(
+                        rule_id="consistency_packet_presence",
+                        severity="error",
+                        location=location,
+                        message=f"Champ requis manquant dans consistency_packet: '{field}'.",
+                        suggested_fix="Inclure les champs minimaux du packet dans chaque shot.",
+                    )
+                )
+
+    if not issues:
+        issues.append(
+            _make_issue(
+                rule_id="consistency_packet_presence",
+                severity="info",
+                location="output.shots",
+                message="Consistency packet présent sur tous les shots.",
+                suggested_fix="Aucune action requise.",
+            )
+        )
+    return issues
+
+
+def _rule_traits_overlap(output: dict) -> list[dict]:
+    issues: list[dict] = []
+    shots = [shot for shot in output.get("shots", []) if isinstance(shot, dict)]
+    if not shots:
+        return issues
+
+    reference_packet = shots[0].get("consistency_packet")
+    if not isinstance(reference_packet, dict):
+        return issues
+
+    quality_gates = reference_packet.get("quality_gates", {})
+    threshold = (
+        quality_gates.get("traits_min_overlap")
+        if isinstance(quality_gates, dict) and isinstance(quality_gates.get("traits_min_overlap"), (int, float))
+        else DEFAULT_QUALITY_GATES["traits_min_overlap"]
+    )
+
+    reference_traits: dict[str, set[str]] = {}
+    ref_characters = reference_packet.get("characters", [])
+    if isinstance(ref_characters, list):
+        for character in ref_characters:
+            if not isinstance(character, dict):
+                continue
+            char_id = character.get("character_id")
+            core_traits = character.get("core_traits")
+            if isinstance(char_id, str) and isinstance(core_traits, list):
+                normalized_traits = {
+                    _normalize_token(trait) for trait in core_traits if isinstance(trait, str) and trait.strip()
+                }
+                if normalized_traits:
+                    reference_traits[char_id] = normalized_traits
+
+    for shot_idx, shot in enumerate(shots):
+        packet = shot.get("consistency_packet")
+        if not isinstance(packet, dict):
+            continue
+        characters = packet.get("characters", [])
+        if not isinstance(characters, list):
+            continue
+
+        for char_idx, character in enumerate(characters):
+            if not isinstance(character, dict):
+                continue
+            char_id = character.get("character_id")
+            core_traits = character.get("core_traits")
+            if not isinstance(char_id, str) or not isinstance(core_traits, list) or char_id not in reference_traits:
+                continue
+
+            current_traits = {
+                _normalize_token(trait) for trait in core_traits if isinstance(trait, str) and trait.strip()
+            }
+            if not current_traits:
+                continue
+
+            overlap_ratio = len(current_traits & reference_traits[char_id]) / len(reference_traits[char_id])
+            if overlap_ratio < float(threshold):
+                issues.append(
+                    _make_issue(
+                        rule_id="traits_overlap",
+                        severity="error",
+                        location=f"output.shots[{shot_idx}].consistency_packet.characters[{char_idx}]",
+                        message=f"Overlap de traits insuffisant pour '{char_id}' ({overlap_ratio:.2f} < {threshold:.2f}).",
+                        suggested_fix="Rétablir les core_traits du personnage pour atteindre le seuil minimal.",
+                    )
+                )
+
+    if not issues:
+        issues.append(
+            _make_issue(
+                rule_id="traits_overlap",
+                severity="info",
+                location="output.shots",
+                message="Overlap des traits conforme.",
+                suggested_fix="Aucune action requise.",
+            )
+        )
+    return issues
+
+
+def _rule_anachronism(output: dict) -> list[dict]:
+    issues: list[dict] = []
+    shots = output.get("shots", [])
+    for shot_idx, shot in enumerate(shots):
+        if not isinstance(shot, dict):
+            continue
+        packet = shot.get("consistency_packet")
+        if not isinstance(packet, dict):
+            continue
+        visual = packet.get("visual_continuity")
+        if not isinstance(visual, dict):
+            continue
+        banned_items = visual.get("period_banned_items", [])
+        if not isinstance(banned_items, list):
+            continue
+
+        description = str(shot.get("description") or "")
+        anachronism_count = 0
+        for banned_item in banned_items:
+            if isinstance(banned_item, str) and banned_item.strip() and banned_item.lower() in description.lower():
+                anachronism_count += 1
+                issues.append(
+                    _make_issue(
+                        rule_id="period_anachronism",
+                        severity="error",
+                        location=f"output.shots[{shot_idx}].description",
+                        message=f"Anachronisme détecté: '{banned_item}'.",
+                        suggested_fix="Supprimer les éléments interdits par period_banned_items.",
+                    )
+                )
+
+        max_count = DEFAULT_QUALITY_GATES["max_anachronism_count"]
+        gates = packet.get("quality_gates")
+        if isinstance(gates, dict) and isinstance(gates.get("max_anachronism_count"), int):
+            max_count = gates["max_anachronism_count"]
+        if anachronism_count > max_count:
+            issues.append(
+                _make_issue(
+                    rule_id="period_anachronism",
+                    severity="error",
+                    location=f"output.shots[{shot_idx}].consistency_packet.quality_gates.max_anachronism_count",
+                    message=f"Nombre d'anachronismes ({anachronism_count}) au-dessus du seuil ({max_count}).",
+                    suggested_fix="Réduire anachronism_count au seuil autorisé.",
+                )
+            )
+
+    if not issues:
+        issues.append(
+            _make_issue(
+                rule_id="period_anachronism",
+                severity="info",
+                location="output.shots",
+                message="Aucun anachronisme détecté.",
+                suggested_fix="Aucune action requise.",
+            )
+        )
+    return issues
+
+
+def _rule_tension_jump(output: dict) -> list[dict]:
+    issues: list[dict] = []
+    shots = [shot for shot in output.get("shots", []) if isinstance(shot, dict)]
+    previous_tension: int | None = None
+    previous_twist = False
+
+    for shot_idx, shot in enumerate(shots):
+        packet = shot.get("consistency_packet")
+        if not isinstance(packet, dict):
+            continue
+        narrative = packet.get("narrative_continuity")
+        gates = packet.get("quality_gates")
+        if not isinstance(narrative, dict):
+            continue
+
+        tension = narrative.get("tension_level")
+        if not isinstance(tension, (int, float)):
+            continue
+        twist_flag = bool(narrative.get("twist_flag"))
+        max_jump = DEFAULT_QUALITY_GATES["max_tension_jump"]
+        if isinstance(gates, dict) and isinstance(gates.get("max_tension_jump"), (int, float)):
+            max_jump = gates["max_tension_jump"]
+
+        if previous_tension is not None and abs(float(tension) - previous_tension) > float(max_jump):
+            if not (twist_flag or previous_twist):
+                issues.append(
+                    _make_issue(
+                        rule_id="tension_jump",
+                        severity="warning",
+                        location=f"output.shots[{shot_idx}].consistency_packet.narrative_continuity.tension_level",
+                        message=(
+                            f"Saut de tension trop fort ({previous_tension:.1f} -> {float(tension):.1f}) "
+                            f"sans twist_flag."
+                        ),
+                        suggested_fix="Lisser la courbe de tension ou expliciter twist_flag=true.",
+                    )
+                )
+        previous_tension = float(tension)
+        previous_twist = twist_flag
+
+    if not issues:
+        issues.append(
+            _make_issue(
+                rule_id="tension_jump",
+                severity="info",
+                location="output.shots",
+                message="Variation de tension conforme.",
+                suggested_fix="Aucune action requise.",
+            )
+        )
+    return issues
+
+
+def _rule_causal_order(output: dict) -> list[dict]:
+    issues: list[dict] = []
+    shots = [shot for shot in output.get("shots", []) if isinstance(shot, dict)]
+    seen_actions: set[str] = set()
+
+    for shot_idx, shot in enumerate(shots):
+        description = str(shot.get("description") or "")
+        packet = shot.get("consistency_packet")
+        if not isinstance(packet, dict):
+            continue
+        narrative = packet.get("narrative_continuity")
+        if not isinstance(narrative, dict):
+            continue
+        action_sequence = narrative.get("action_sequence")
+        if not isinstance(action_sequence, list):
+            continue
+
+        normalized_description = _normalize_token(description)
+        for action_idx, action in enumerate(action_sequence):
+            if not isinstance(action, str) or not action.strip():
+                continue
+            normalized_action = _normalize_token(action)
+            if normalized_action and normalized_action in normalized_description:
+                missing_predecessor = next(
+                    (
+                        _normalize_token(prev_action)
+                        for prev_action in action_sequence[:action_idx]
+                        if isinstance(prev_action, str)
+                        and _normalize_token(prev_action)
+                        and _normalize_token(prev_action) not in seen_actions
+                    ),
+                    None,
+                )
+                if missing_predecessor:
+                    issues.append(
+                        _make_issue(
+                            rule_id="causal_order",
+                            severity="error",
+                            location=f"output.shots[{shot_idx}].description",
+                            message=f"Ordre causal violé: '{action}' apparaît avant ses prérequis.",
+                            suggested_fix="Respecter l'ordre des actions défini dans action_sequence.",
+                        )
+                    )
+                seen_actions.add(normalized_action)
+
+    if not issues:
+        issues.append(
+            _make_issue(
+                rule_id="causal_order",
+                severity="info",
+                location="output.shots",
+                message="Ordre causal respecté.",
+                suggested_fix="Aucune action requise.",
+            )
+        )
+    return issues
+
+
 def _rule_scene_shot_order(output: dict) -> list[dict]:
     issues: list[dict] = []
     scenes = output.get("scenes", [])
@@ -270,8 +671,13 @@ def build_consistency_report(scene_doc: dict) -> list[dict]:
 
     report: list[dict] = []
     report.extend(_rule_character_ids(output))
+    report.extend(_rule_consistency_packet_presence(output))
     report.extend(_rule_visual_constraints(output))
     report.extend(_rule_scene_shot_order(output))
+    report.extend(_rule_traits_overlap(output))
+    report.extend(_rule_anachronism(output))
+    report.extend(_rule_tension_jump(output))
+    report.extend(_rule_causal_order(output))
     return report
 
 
@@ -290,7 +696,7 @@ def enrich(scene_doc: dict) -> dict:
     if not isinstance(output, dict):
         raise ValueError("scene_doc.output doit être un objet.")
 
-    _apply_enrichment(output)
+    _apply_enrichment(enriched_doc)
 
     write_json_utf8("outputs/scene_enriched.json", enriched_doc)
 

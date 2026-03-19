@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from src.core.consistency_engine import build_consistency_report, enrich, has_blocking_violations
+from src.core.consistency_engine import (
+    build_consistency_packet,
+    build_consistency_report,
+    enrich,
+    has_blocking_violations,
+)
 from src.core.schema_validator import ENRICHED_SCHEMA_PATH, validate_narrative_document
 from src.core.story_engine import StoryEngine
 
@@ -42,6 +47,35 @@ def test_rule_visual_constraints_presence_flags_missing_constraints() -> None:
     )
 
 
+def test_build_consistency_packet_has_required_minimal_fields() -> None:
+    narrative = _narrative()
+
+    packet = build_consistency_packet(narrative)
+
+    assert "consistency_packet_version" in packet
+    assert "characters" in packet
+    assert "visual_continuity" in packet
+    assert "narrative_continuity" in packet
+    assert "quality_gates" in packet
+
+
+def test_enrich_injects_consistency_packet_in_each_shot() -> None:
+    narrative = _narrative()
+
+    enriched = enrich(narrative)["enriched_doc"]
+    shots = enriched["output"]["shots"]
+
+    assert shots
+    for shot in shots:
+        assert "consistency_packet" in shot
+        packet = shot["consistency_packet"]
+        assert packet["consistency_packet_version"] == "1.0"
+        assert isinstance(packet["characters"], list)
+        assert isinstance(packet["visual_continuity"], dict)
+        assert isinstance(packet["narrative_continuity"], dict)
+        assert isinstance(packet["quality_gates"], dict)
+
+
 def test_rule_scene_shot_order_detects_reordered_scenes() -> None:
     narrative = _narrative()
     narrative["output"]["scenes"] = [
@@ -63,6 +97,87 @@ def test_rule_scene_shot_order_detects_reordered_scenes() -> None:
         for issue in report
     )
     assert not has_blocking_violations(report)
+
+
+def test_rule_traits_overlap_is_blocking_when_below_threshold() -> None:
+    narrative = _narrative()
+    enriched = enrich(narrative)["enriched_doc"]
+    shots = enriched["output"]["shots"]
+    assert len(shots) >= 2
+
+    shots[1]["consistency_packet"]["characters"][0]["core_traits"] = ["incoherent_trait"]
+
+    report = build_consistency_report(enriched)
+
+    assert any(
+        issue["rule_id"] == "traits_overlap"
+        and issue["severity"] == "error"
+        and "Overlap de traits insuffisant" in issue["message"]
+        for issue in report
+    )
+    assert has_blocking_violations(report)
+
+
+def test_rule_period_anachronism_is_blocking() -> None:
+    narrative = _narrative()
+    enriched = enrich(narrative)["enriched_doc"]
+    shot = enriched["output"]["shots"][0]
+    shot["consistency_packet"]["visual_continuity"]["period_banned_items"] = ["hologramme futuriste"]
+    shot["description"] = "Un hologramme futuriste apparaît au centre de la scène."
+
+    report = build_consistency_report(enriched)
+
+    assert any(
+        issue["rule_id"] == "period_anachronism"
+        and issue["severity"] == "error"
+        and "Anachronisme détecté" in issue["message"]
+        for issue in report
+    )
+    assert has_blocking_violations(report)
+
+
+def test_rule_tension_jump_is_non_blocking_warning_without_twist() -> None:
+    narrative = _narrative()
+    enriched = enrich(narrative)["enriched_doc"]
+    shots = enriched["output"]["shots"]
+    assert len(shots) >= 2
+
+    shots[0]["consistency_packet"]["narrative_continuity"]["tension_level"] = 1
+    shots[1]["consistency_packet"]["narrative_continuity"]["tension_level"] = 9
+    shots[0]["consistency_packet"]["narrative_continuity"]["twist_flag"] = False
+    shots[1]["consistency_packet"]["narrative_continuity"]["twist_flag"] = False
+
+    report = build_consistency_report(enriched)
+
+    assert any(
+        issue["rule_id"] == "tension_jump"
+        and issue["severity"] == "warning"
+        and "Saut de tension trop fort" in issue["message"]
+        for issue in report
+    )
+    assert not has_blocking_violations([issue for issue in report if issue["rule_id"] == "tension_jump"])
+
+
+def test_rule_causal_order_is_blocking_on_inverted_sequence() -> None:
+    narrative = _narrative()
+    enriched = enrich(narrative)["enriched_doc"]
+    shot = enriched["output"]["shots"][0]
+    shot["consistency_packet"]["narrative_continuity"]["action_sequence"] = [
+        "repérage entrée nord",
+        "passage contrôle",
+        "accès salle technique",
+    ]
+    shot["description"] = "Alex réalise un accès salle technique immédiat."
+
+    report = build_consistency_report(enriched)
+
+    assert any(
+        issue["rule_id"] == "causal_order"
+        and issue["severity"] == "error"
+        and "Ordre causal violé" in issue["message"]
+        for issue in report
+    )
+    assert has_blocking_violations(report)
 
 
 def test_enrich_preserves_topology_of_scenes_and_shots() -> None:
