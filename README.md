@@ -186,6 +186,27 @@ Critères de validation :
 
 ---
 
+## ✅ Definition of Done (DoD)
+
+Une tâche est considérée "Done" uniquement si les points suivants sont validés:
+
+- Schéma narratif valide (`python main.py validate outputs/scene.json`).
+- Tests unitaires core verts (au minimum `tests/test_schema_validator.py`, `tests/test_consistency_engine.py`, `tests/test_pipeline_blocking.py`).
+- Smoke pipeline vert (`tests/test_smoke_pipeline_mock.py`).
+- Invariants garantis par tests:
+  - topologie scènes/shots inchangée après enrichissement,
+  - tri narratif stable,
+  - manifests obligatoires présents et cohérents.
+- Seuils de couverture atteints pour les modules critiques:
+  - `src/core` ≥ 85%,
+  - `src/generation` ≥ 80%,
+  - minimum global pytest-cov ≥ 82%.
+- Artefacts obligatoires générés correctement dans les tests et en pipeline:
+  - `outputs/manifest.json`,
+  - `outputs/shots/shots_manifest.json`.
+- CI bloquante: tout échec de ces checks met le job en rouge.
+
+
 ## ⚠️ Contraintes
 
 - Latence élevée acceptée
