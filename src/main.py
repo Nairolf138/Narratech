@@ -7,6 +7,7 @@ import sys
 
 
 from src.core.input_loader import load_prompt
+from src.core.consistency_engine import enrich
 from src.core.story_engine import StoryEngine
 
 
@@ -23,8 +24,12 @@ def main() -> None:
 
     engine = StoryEngine()
     narrative = engine.generate(prompt)
+    enriched_narrative = enrich(narrative)
+
     logger.info("Narration générée: %s", narrative["request_id"])
     logger.info("Fichier écrit: outputs/scene.json")
+    logger.info("Fichier enrichi écrit: outputs/scene_enriched.json")
+    logger.debug("Shots enrichis: %s", len(enriched_narrative.get("output", {}).get("shots", [])))
 
 
 if __name__ == "__main__":

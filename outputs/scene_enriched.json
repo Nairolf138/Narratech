@@ -1,0 +1,114 @@
+{
+  "request_id": "req_9443faf573574e43a066eaa9e7d33626",
+  "schema_version": "narrative.v1",
+  "input": {
+    "prompt": "Test cohérence personnages",
+    "duration_sec": 45,
+    "style": "cinematic",
+    "language": "fr"
+  },
+  "output": {
+    "synopsis": "Un protagoniste suit un indice décisif et transforme une découverte discrète en révélation finale.",
+    "characters": [
+      {
+        "id": "char_1",
+        "name": "Alex",
+        "role": "protagonist",
+        "description": "Observateur persévérant qui suit chaque détail."
+      }
+    ],
+    "scenes": [
+      {
+        "id": "scene_1",
+        "summary": "Alex découvre un indice, l'analyse et agit.",
+        "duration_sec": 45
+      }
+    ],
+    "shots": [
+      {
+        "id": "shot_001",
+        "scene_id": "scene_1",
+        "description": "Plan d'ensemble: Alex arrive dans un lieu calme.",
+        "duration_sec": 12.0,
+        "consistency_constraints": {
+          "lighting_style": "cinematic soft key light with gentle contrast",
+          "color_palette": [
+            "#1F2A44",
+            "#D9A441",
+            "#E8E3D9"
+          ],
+          "camera_style": "35mm lens, stable dolly movement, medium depth of field"
+        },
+        "enriched_prompt": "Plan d'ensemble: Alex arrive dans un lieu calme.\n[character_ids: char_1]\n[scene_id: scene_1]\nRespect strict de la continuité inter-scènes et des éléments visuels imposés."
+      },
+      {
+        "id": "shot_002",
+        "scene_id": "scene_1",
+        "description": "Gros plan: un indice apparaît sur la table.",
+        "duration_sec": 15.0,
+        "consistency_constraints": {
+          "lighting_style": "cinematic soft key light with gentle contrast",
+          "color_palette": [
+            "#1F2A44",
+            "#D9A441",
+            "#E8E3D9"
+          ],
+          "camera_style": "35mm lens, stable dolly movement, medium depth of field"
+        },
+        "enriched_prompt": "Gros plan: un indice apparaît sur la table.\n[character_ids: char_1]\n[scene_id: scene_1]\nRespect strict de la continuité inter-scènes et des éléments visuels imposés."
+      },
+      {
+        "id": "shot_003",
+        "scene_id": "scene_1",
+        "description": "Plan de conclusion: Alex prend une décision.",
+        "duration_sec": 18.0,
+        "consistency_constraints": {
+          "lighting_style": "cinematic soft key light with gentle contrast",
+          "color_palette": [
+            "#1F2A44",
+            "#D9A441",
+            "#E8E3D9"
+          ],
+          "camera_style": "35mm lens, stable dolly movement, medium depth of field"
+        },
+        "enriched_prompt": "Plan de conclusion: Alex prend une décision.\n[character_ids: char_1]\n[scene_id: scene_1]\nRespect strict de la continuité inter-scènes et des éléments visuels imposés."
+      }
+    ],
+    "asset_refs": [
+      {
+        "id": "asset_001",
+        "type": "image",
+        "uri": "local://assets/scene/background_01.png"
+      }
+    ],
+    "audio_plan": {
+      "voiceover": {
+        "enabled": true,
+        "language": "fr",
+        "script": "Alex perçoit l'indice, relie les faits et agit avant qu'il ne soit trop tard."
+      },
+      "ambience": {
+        "enabled": true,
+        "description": "Ambiance légère, tension progressive, final résolutif."
+      }
+    },
+    "render_plan": {
+      "resolution": "1920x1080",
+      "fps": 24,
+      "format": "mp4",
+      "transitions": [
+        "cut",
+        "fade"
+      ]
+    }
+  },
+  "provider_trace": [
+    {
+      "stage": "story_generation",
+      "provider": "internal",
+      "model": "story-engine-v1",
+      "trace_id": "trace_633096f1029f",
+      "latency_ms": 42
+    }
+  ]
+}
