@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
+
+from src.core.io_utils import write_json_utf8
 
 
 ASSETS_ROOT = Path("assets")
@@ -22,8 +23,7 @@ def _write_asset_file(asset_uri: str, payload: dict) -> None:
         raise ValueError("Les URIs d'assets doivent commencer par local://")
 
     path = Path(asset_uri.replace("local://", "", 1))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_utf8(path, payload)
 
 
 def generate(scene_doc: dict) -> list[dict]:
@@ -96,6 +96,8 @@ def generate(scene_doc: dict) -> list[dict]:
             "placeholder": True,
         },
     )
+
+    write_json_utf8(asset_dir / "assets_manifest.json", {"request_id": request_id, "assets": asset_refs})
 
     output["asset_refs"] = asset_refs
     return asset_refs
