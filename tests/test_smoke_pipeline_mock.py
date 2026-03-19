@@ -1,0 +1,62 @@
+"""Smoke test du pipeline mock Narratech, sans dépendance externe."""
+
+from __future__ import annotations
+
+import socket
+import time
+from pathlib import Path
+
+import pytest
+
+from src.main import ensure_dirs
+from src.assembly.video_assembler import assemble as assemble_video
+from src.core.consistency_engine import enrich
+from src.core.story_engine import StoryEngine
+from src.generation.asset_generator import generate as generate_assets
+from src.generation.shot_generator import generate as generate_shots
+
+
+@pytest.mark.smoke
+def test_smoke_pipeline_mock_e2e(
+    isolated_workdir: Path,
+    minimal_prompt: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Valide un flux narratif complet avec la config minimale locale."""
+
+    def _block_network(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("Unexpected network call in smoke pipeline test")
+
+    monkeypatch.setattr(socket, "create_connection", _block_network)
+    monkeypatch.setattr(socket.socket, "connect", _block_network)
+
+    start = time.perf_counter()
+
+    ensure_dirs()
+    narrative = StoryEngine().generate(minimal_prompt)
+    enriched_narrative = enrich(narrative)
+    asset_refs = generate_assets(enriched_narrative)
+    clips = generate_shots(enriched_narrative)
+    final_video_path = assemble_video(clips, "outputs/final")
+
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 5.0
+
+    assert isinstance(narrative, dict)
+    assert narrative.get("output")
+    assert isinstance(narrative["output"].get("shots"), list)
+    assert narrative["output"]["shots"]
+
+    assert isinstance(asset_refs, list)
+    assert asset_refs
+    assert isinstance(clips, list)
+    assert clips
+
+    final_path = Path(final_video_path)
+    assert final_path.exists()
+    assert final_path.read_text(encoding="utf-8").strip()
+
+    assert (isolated_workdir / "outputs" / "scene.json").exists()
+    assert (isolated_workdir / "outputs" / "scene_enriched.json").exists()
+    assert (isolated_workdir / "outputs" / "shots" / "shots_manifest.json").exists()
