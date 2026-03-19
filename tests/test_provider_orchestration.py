@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.core.pipeline_state import PipelineRuntimeState, PipelineStage
 from src.main import _execute_with_retry_and_fallback
 from src.providers import MockAssetProvider, ProviderRateLimit, ProviderRequest, ProviderTimeout
 
@@ -19,6 +20,8 @@ def test_execute_with_retry_recovers_after_timeout() -> None:
             )
         ),
         provider=provider,
+        state=PipelineRuntimeState(request_id="req_test_retry_1"),
+        stage=PipelineStage.ASSETS_GENERATED,
         retries=1,
     )
 
@@ -41,6 +44,8 @@ def test_execute_with_retry_uses_fallback_after_rate_limit() -> None:
             )
         ),
         provider=primary,
+        state=PipelineRuntimeState(request_id="req_test_retry_2"),
+        stage=PipelineStage.ASSETS_GENERATED,
         fallback_provider=fallback,
         retries=1,
     )
@@ -63,6 +68,8 @@ def test_execute_with_retry_raises_when_no_fallback() -> None:
                 )
             ),
             provider=provider,
+            state=PipelineRuntimeState(request_id="req_test_retry_3"),
+            stage=PipelineStage.ASSETS_GENERATED,
             retries=1,
         )
     except ProviderRateLimit:

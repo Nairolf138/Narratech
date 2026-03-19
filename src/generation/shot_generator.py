@@ -68,6 +68,7 @@ def generate(scene_doc: dict, provider: BaseProvider | None = None) -> list[dict
             {
                 "path": file_path.as_posix(),
                 "shot_id": shot_id,
+                "request_id": request_id,
                 "duration": duration,
                 "order": order,
                 "provider_trace": response.provider_trace,
@@ -77,7 +78,7 @@ def generate(scene_doc: dict, provider: BaseProvider | None = None) -> list[dict
             }
         )
 
-    write_json_utf8(SHOTS_ROOT / "shots_manifest.json", {"clips": clips, "count": len(clips)})
+    write_json_utf8(SHOTS_ROOT / "shots_manifest.json", {"request_id": request_id, "clips": clips, "count": len(clips)})
 
     output["clips"] = clips
     return clips

@@ -1,6 +1,7 @@
 """Composants coeur."""
 
 from src.core.consistency_engine import enrich
+from src.core.pipeline_state import PipelineRuntimeState, PipelineStage, PipelineTransitionEvent
 from src.core.story_engine import StoryEngine
 
-__all__ = ["StoryEngine", "enrich"]
+__all__ = ["StoryEngine", "enrich", "PipelineStage", "PipelineTransitionEvent", "PipelineRuntimeState"]

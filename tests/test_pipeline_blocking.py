@@ -22,7 +22,10 @@ def test_pipeline_stops_on_blocking_consistency_violation(
     narrative = _valid_narrative()
 
     monkeypatch.setattr("src.main.load_prompt", lambda _args: "prompt")
-    monkeypatch.setattr("src.main.StoryEngine", lambda *args, **kwargs: type("Stub", (), {"generate": lambda _self, _p: narrative})())
+    monkeypatch.setattr(
+        "src.main.StoryEngine",
+        lambda *args, **kwargs: type("Stub", (), {"generate": lambda _self, _p, request_id=None: narrative})(),
+    )
     monkeypatch.setattr(
         "src.main.enrich",
         lambda _doc: {
@@ -62,7 +65,10 @@ def test_pipeline_continues_on_non_blocking_consistency_issues(
     narrative = _valid_narrative()
 
     monkeypatch.setattr("src.main.load_prompt", lambda _args: "prompt")
-    monkeypatch.setattr("src.main.StoryEngine", lambda *args, **kwargs: type("Stub", (), {"generate": lambda _self, _p: narrative})())
+    monkeypatch.setattr(
+        "src.main.StoryEngine",
+        lambda *args, **kwargs: type("Stub", (), {"generate": lambda _self, _p, request_id=None: narrative})(),
+    )
     monkeypatch.setattr(
         "src.main.enrich",
         lambda _doc: {
