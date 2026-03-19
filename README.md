@@ -113,26 +113,64 @@ Ajoute :
 
 ## 📁 Structure du projet
 
+Arborescence générée avec :
+
+```bash
+find . \
+  \( -path './.git' -o -path './.venv' -o -path './venv' -o -path './node_modules' \
+     -o -path './__pycache__' -o -path './.pytest_cache' -o -path './.mypy_cache' \
+     -o -path './dist' -o -path './build' -o -path './.next' -o -path './coverage' \) -prune \
+  -o -print | sed 's#^\./##' | sort
 ```
-/project-root
-  /core
-    story_engine.py
+
+```text
+.
+DECISIONS.md
+README.md
+SPEC.md
+TODO.md
+assets/
+  .gitkeep
+docs/
+  consistency_rules.md
+  orchestration_flow.md
+  provider_contracts.md
+example_prompt.txt
+outputs/
+  .gitkeep
+  scene.json
+  scene_enriched.json
+  final/
+    .gitkeep
+  shots/
+    .gitkeep
+schemas/
+  CHANGELOG.md
+  narrative.v1.schema.json
+src/
+  __init__.py
+  main.py
+  assembly/
+    __init__.py
+    video_assembler.py
+  core/
+    __init__.py
     consistency_engine.py
-  /generation
+    input_loader.py
+    io_utils.py
+    logger.py
+    story_engine.py
+  generation/
+    __init__.py
     asset_generator.py
     shot_generator.py
-  /assembly
-    video_assembler.py
-    audio_engine.py
-  /data
-    prompts/
-    outputs/
-    assets/
-  /config
-    settings.json
-  main.py
-  README.md
+  providers/
+    __init__.py
 ```
+
+_Note de maintenance : régénérer cette section à chaque changement de structure (ajout/suppression/déplacement de fichiers ou dossiers), idéalement par la personne qui ouvre la PR concernée._
+
+_Cohérence vérifiée : le chemin référencé plus loin dans ce README (`schemas/narrative.v1.schema.json`) est présent dans cette arborescence._
 
 ---
 
