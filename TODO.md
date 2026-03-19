@@ -1,5 +1,7 @@
 # ✅ TODO — Narratech
 
+> **Règle de nommage (schémas)**: utiliser `snake_case`, suffixe `.schema`, version explicite (`v<major>`), extension unique `.json`, et emplacement `schemas/` — ex. `schemas/narrative.v1.schema.json`.
+
 ## Milestones
 1. **Foundation**
 2. **Pipeline V1**
@@ -10,7 +12,7 @@
 
 | ID | Milestone | Ticket | DoD (Definition of Done) | Dépendances | Estimation | Priorité |
 |---|---|---|---|---|---|---|
-| T-001 | Foundation | Définir le schéma JSON narratif v1 | Schéma versionné dans `schemas/narrative.schema.json`, validé avec 3 exemples (valide/invalide), documentation courte des champs obligatoires. | — | M | P0 |
+| T-001 | Foundation | Définir le schéma JSON narratif v1 | Schéma versionné dans `schemas/narrative.v1.schema.json`, validé avec 3 exemples (valide/invalide), documentation courte des champs obligatoires. | — | M | P0 |
 | T-002 | Foundation | Mettre en place le validateur de schéma en CLI | Commande `narratech validate <file>` disponible, code de sortie fiable (0/1), intégrée au README. | T-001 | S | P0 |
 | T-003 | Foundation | Créer 10 fixtures d'histoires minimales | 10 fichiers JSON couvrant cas nominal + edge cases, tous passés via le validateur. | T-001, T-002 | S | P1 |
 | T-004 | Pipeline V1 | Implémenter Story Engine (mock) | Entrée JSON → sortie plan de scènes déterministe, tests unitaires > 80% sur le module. | T-001, T-003 | M | P0 |
