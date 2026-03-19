@@ -15,7 +15,12 @@ from src.core.input_loader import load_prompt
 from src.core.io_utils import write_json_utf8
 from src.core.logger import log_step, log_transition
 from src.core.pipeline_state import PipelineRuntimeState, PipelineStage
-from src.core.schema_validator import NarrativeValidationError, validate_narrative_document, validate_narrative_file
+from src.core.schema_validator import (
+    ENRICHED_SCHEMA_PATH,
+    NarrativeValidationError,
+    validate_narrative_document,
+    validate_narrative_file,
+)
 from src.core.story_engine import StoryEngine
 from src.generation.asset_generator import generate as generate_assets
 from src.generation.shot_generator import generate as generate_shots
@@ -151,6 +156,7 @@ def _run_pipeline(args: list[str]) -> int:
         consistency_result = enrich(narrative)
         enriched_narrative = consistency_result["enriched_doc"]
         enriched_narrative["request_id"] = request_id
+        validate_narrative_document(enriched_narrative, schema_path=ENRICHED_SCHEMA_PATH)
         consistency_report = consistency_result["consistency_report"]
         consistency_report_path = write_json_utf8("outputs/consistency_report.json", consistency_report)
         _transition(PipelineStage.CONSISTENCY_ENRICHED, "Cohérence enrichie et rapport généré")

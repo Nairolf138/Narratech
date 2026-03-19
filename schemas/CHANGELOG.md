@@ -1,5 +1,17 @@
 # Schema Changelog
 
+## [narrative.enriched.v1] - 2026-03-19
+
+### Added
+- New enriched schema contract: `schemas/narrative.enriched.v1.schema.json`.
+- Explicit enrichment fields on `output.shots[*]`:
+  - `consistency_constraints` (with required `lighting_style`, `color_palette`, `camera_style`)
+  - `enriched_prompt`
+
+### Notes
+- `outputs/scene_enriched.json` must validate against `schemas/narrative.enriched.v1.schema.json`.
+- `outputs/scene.json` continues to validate against `schemas/narrative.v1.schema.json`.
+
 ## [narrative.v1] - 2026-03-19
 
 ### Added

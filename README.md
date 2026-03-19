@@ -147,6 +147,7 @@ outputs/
     .gitkeep
 schemas/
   CHANGELOG.md
+  narrative.enriched.v1.schema.json
   narrative.v1.schema.json
 src/
   __init__.py
@@ -308,6 +309,11 @@ Le contrat V1 est défini dans `schemas/narrative.v1.schema.json` et couvre :
 - contraintes V1 (`1 scène`, `1–2 personnages`, `30–60s`)
 - traçabilité (`request_id`, `schema_version`, `provider_trace`)
 
+### 🗂️ Mapping artefact ↔ schéma
+
+- `outputs/scene.json` ➜ `schemas/narrative.v1.schema.json` (sortie StoryEngine non enrichie).
+- `outputs/scene_enriched.json` ➜ `schemas/narrative.enriched.v1.schema.json` (sortie ConsistencyEngine enrichie avec `output.shots[*].consistency_constraints` et `output.shots[*].enriched_prompt`).
+
 ### ✅ Exemple valide
 
 ```json
@@ -450,6 +456,7 @@ Ce smoke test exécute un flux de bout en bout avec un pipeline mock local, sans
 ## ✅ Validation du schéma narratif
 
 Narratech valide désormais les documents narratifs contre `schemas/narrative.v1.schema.json`.
+Le pipeline valide ensuite aussi `outputs/scene_enriched.json` contre `schemas/narrative.enriched.v1.schema.json` juste après enrichissement.
 
 ### Commande CLI
 
@@ -489,5 +496,6 @@ Document narratif invalide: $.output.render_plan.fps: type attendu integer, vale
 
 ### Validation automatique dans le pipeline
 
-Après `StoryEngine().generate(...)`, Narratech exécute une validation de schéma avant les étapes suivantes (`ConsistencyEngine`, `AssetGenerator`, etc.).
+Après `StoryEngine().generate(...)`, Narratech valide `scene.json` via `schemas/narrative.v1.schema.json`.
+Après `enrich(...)`, Narratech valide `scene_enriched.json` via `schemas/narrative.enriched.v1.schema.json`.
 Si la validation échoue, le pipeline s’arrête immédiatement avec un code de retour `1`.

@@ -7,29 +7,38 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_PATH = Path(__file__).resolve().parents[2] / "schemas" / "narrative.v1.schema.json"
+SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "schemas"
+DEFAULT_SCHEMA_PATH = SCHEMAS_DIR / "narrative.v1.schema.json"
+ENRICHED_SCHEMA_PATH = SCHEMAS_DIR / "narrative.enriched.v1.schema.json"
 
 
 class NarrativeValidationError(ValueError):
     """Erreur de validation d'un document narratif."""
 
 
-def load_narrative_schema() -> dict[str, Any]:
-    """Charge le schéma narratif V1 depuis le dossier `schemas/`."""
-    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+def load_narrative_schema(schema_path: str | Path = DEFAULT_SCHEMA_PATH) -> dict[str, Any]:
+    """Charge un schéma narratif depuis le dossier `schemas/`."""
+    source = Path(schema_path)
+    return json.loads(source.read_text(encoding="utf-8"))
 
 
-def validate_narrative_document(document: dict[str, Any]) -> None:
+def validate_narrative_document(
+    document: dict[str, Any],
+    schema_path: str | Path = DEFAULT_SCHEMA_PATH,
+) -> None:
     """Valide un document narratif, lève `NarrativeValidationError` en cas d'échec."""
-    schema = load_narrative_schema()
+    schema = load_narrative_schema(schema_path=schema_path)
     _validate(document, schema, path="$")
 
 
-def validate_narrative_file(path: str | Path) -> dict[str, Any]:
+def validate_narrative_file(
+    path: str | Path,
+    schema_path: str | Path = DEFAULT_SCHEMA_PATH,
+) -> dict[str, Any]:
     """Charge et valide un fichier JSON narratif."""
     source = Path(path)
     document = json.loads(source.read_text(encoding="utf-8"))
-    validate_narrative_document(document)
+    validate_narrative_document(document, schema_path=schema_path)
     return document
 
 
