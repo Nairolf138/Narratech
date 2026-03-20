@@ -184,6 +184,20 @@ Ajoute :
 
 ---
 
+
+## 📚 Documentation détaillée
+
+- Vue pipeline end-to-end: `docs/pipeline_end_to_end.md`
+- Guide d’intégration provider: `docs/provider_addition_guide.md`
+- Domaines:
+  - `docs/domains/narrative.md`
+  - `docs/domains/assets.md`
+  - `docs/domains/shots.md`
+  - `docs/domains/audio.md`
+  - `docs/domains/orchestration.md`
+  - `docs/domains/safety.md`
+  - `docs/domains/metrics.md`
+
 ## 📁 Structure du projet
 
 Arborescence **réellement présente** (vérifiée le **2026-03-20**) :
