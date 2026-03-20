@@ -22,14 +22,11 @@ from src.core.schema_validator import (
     validate_narrative_document,
     validate_narrative_file,
 )
+from src.config import load_provider_bundle
 from src.core.story_engine import StoryEngine
 from src.generation.asset_generator import generate as generate_assets
-from src.generation.shot_generator import generate as generate_shots
 from src.providers import (
     BaseProvider,
-    MockAssetProvider,
-    MockNarrativeProvider,
-    MockShotProvider,
     ProviderError,
     ProviderRateLimit,
     ProviderRequest,
@@ -412,6 +409,8 @@ def _run_pipeline(args: list[str]) -> int:
 
     _persist_state()
 
+    started_at = time.perf_counter()
+
     try:
         # 1) load_prompt
         log_step("chargement prompt")
@@ -420,13 +419,14 @@ def _run_pipeline(args: list[str]) -> int:
         prompt_path.write_text(prompt + "\n", encoding="utf-8")
         _transition(PipelineStage.PROMPT_LOADED, "Prompt chargé avec succès")
 
-        # Providers injectés par défaut (mock local)
-        story_provider = MockNarrativeProvider()
-        story_fallback_provider = MockNarrativeProvider()
-        asset_provider = MockAssetProvider()
-        asset_fallback_provider = MockAssetProvider()
-        shot_provider = MockShotProvider()
-        shot_fallback_provider = MockShotProvider()
+        # Providers injectés via configuration d'environnement (config/providers.<env>.json)
+        provider_bundle = load_provider_bundle()
+        story_provider = provider_bundle.story.primary
+        story_fallback_provider = provider_bundle.story.fallback
+        asset_provider = provider_bundle.asset.primary
+        asset_fallback_provider = provider_bundle.asset.fallback
+        shot_provider = provider_bundle.shot.primary
+        shot_fallback_provider = provider_bundle.shot.fallback
 
         # 2) StoryEngine
         log_step("génération story")
@@ -520,6 +520,7 @@ def _run_pipeline(args: list[str]) -> int:
             "audio_artifacts": audio_artifacts,
             "final_video_path": final_video_path,
             "consistency_report": consistency_report,
+            "provider_bundle": provider_bundle,
         }
 
         scene_path = write_json_utf8("outputs/scene.json", pipeline_artifacts["narrative"])
@@ -531,6 +532,8 @@ def _run_pipeline(args: list[str]) -> int:
         manifest = {
             "request_id": request_id,
             "prompt_file": prompt_path.as_posix(),
+            "environment": provider_bundle.environment,
+            "vertical": provider_bundle.vertical,
             "scene_file": scene_path.as_posix(),
             "scene_enriched_file": scene_enriched_path.as_posix(),
             "consistency_report_file": consistency_report_path.as_posix(),
@@ -550,6 +553,8 @@ def _run_pipeline(args: list[str]) -> int:
             "audio_files": [artifact.get("path") for artifact in audio_artifacts if isinstance(artifact, dict)],
             "final_dir": "outputs/final",
             "final_video_path": final_video_path,
+            "success_criteria": provider_bundle.success_criteria,
+            "total_runtime_sec": round(time.perf_counter() - started_at, 3),
         }
         write_json_utf8("outputs/manifest.json", manifest)
         _assert_required_artifacts()

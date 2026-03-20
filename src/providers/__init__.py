@@ -16,6 +16,7 @@ from .contracts import AssetProviderContract, NarrativeProviderContract, ShotPro
 from .mock_asset_provider import MockAssetProvider
 from .mock_narrative_provider import MockNarrativeProvider
 from .mock_shot_provider import MockShotProvider
+from .picsum_shot_provider import PicsumShotProvider
 
 __all__ = [
     "BaseProvider",
@@ -35,4 +36,5 @@ __all__ = [
     "MockNarrativeProvider",
     "MockAssetProvider",
     "MockShotProvider",
+    "PicsumShotProvider",
 ]

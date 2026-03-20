@@ -1,0 +1,31 @@
+{
+  "vertical": "demo_narration_mock_plus_picsum_shots",
+  "providers": {
+    "story": {
+      "primary": { "type": "mock_narrative", "config": {} },
+      "fallback": { "type": "mock_narrative", "config": {} }
+    },
+    "asset": {
+      "primary": { "type": "mock_asset", "config": {} },
+      "fallback": { "type": "mock_asset", "config": {} }
+    },
+    "shot": {
+      "primary": {
+        "type": "picsum_shot",
+        "config": {
+          "base_url": "https://picsum.photos",
+          "width": 1280,
+          "height": 720,
+          "seed_prefix": "demo"
+        }
+      },
+      "fallback": { "type": "mock_shot", "config": {} }
+    }
+  },
+  "success_criteria": {
+    "max_total_runtime_sec": 30,
+    "expected_shot_count": 3,
+    "max_placeholder_ratio": 0.2,
+    "min_coherence_score": 0.8
+  }
+}
