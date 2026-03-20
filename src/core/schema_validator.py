@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,21 @@ def _validate(value: Any, schema: dict[str, Any], path: str) -> None:
             f"{path}: longueur minimale attendue {schema['minLength']}, valeur reçue {len(value)}."
         )
 
+
+    if "maxLength" in schema and isinstance(value, str) and len(value) > schema["maxLength"]:
+        raise NarrativeValidationError(
+            f"{path}: longueur maximale attendue {schema['maxLength']}, valeur reçue {len(value)}."
+        )
+
+    if "enum" in schema and value not in schema["enum"]:
+        raise NarrativeValidationError(
+            f"{path}: valeur attendue dans {schema['enum']!r}, valeur reçue {value!r}."
+        )
+
+    if "pattern" in schema and isinstance(value, str) and re.match(schema["pattern"], value) is None:
+        raise NarrativeValidationError(
+            f"{path}: format invalide, motif attendu {schema['pattern']!r}."
+        )
     if "minimum" in schema and isinstance(value, (int, float)) and value < schema["minimum"]:
         raise NarrativeValidationError(
             f"{path}: minimum attendu {schema['minimum']}, valeur reçue {value}."

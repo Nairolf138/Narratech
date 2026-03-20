@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://narratech.local/schemas/user_context.v1.schema.json",
+  "title": "User Context V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "preferences",
+    "constraints",
+    "identity"
+  ],
+  "properties": {
+    "preferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "genre",
+        "ambiance",
+        "rhythm",
+        "duration_sec",
+        "language"
+      ],
+      "properties": {
+        "genre": {
+          "type": "string",
+          "enum": ["general", "adventure", "comedy", "drama", "fantasy", "mystery", "sci-fi"]
+        },
+        "ambiance": {
+          "type": "string",
+          "enum": ["neutral", "light", "dark", "uplifting", "tense", "cinematic"]
+        },
+        "rhythm": {
+          "type": "string",
+          "enum": ["slow", "medium", "fast"]
+        },
+        "duration_sec": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 600
+        },
+        "language": {
+          "type": "string",
+          "enum": ["fr", "en", "es", "de", "it", "pt"]
+        }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "age_rating",
+        "culture",
+        "exclusions"
+      ],
+      "properties": {
+        "age_rating": {
+          "type": "string",
+          "enum": ["all", "7+", "13+", "16+", "18+"]
+        },
+        "culture": {
+          "type": "string",
+          "enum": ["global", "western", "eastern", "african", "latam", "middle_eastern", "south_asian"]
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 20
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id"
+      ],
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "user_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      }
+    }
+  }
+}
