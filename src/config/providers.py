@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from src.providers import BaseProvider, MockAssetProvider, MockNarrativeProvider, MockShotProvider
+from src.providers.factory import create_narrative_provider
+from src.providers.narrative.openai_provider import OpenAINarrativeProvider
 from src.providers.picsum_shot_provider import PicsumShotProvider
 
 
@@ -33,6 +35,7 @@ _PROVIDER_REGISTRY: dict[str, type[BaseProvider]] = {
     "mock_asset": MockAssetProvider,
     "mock_shot": MockShotProvider,
     "picsum_shot": PicsumShotProvider,
+    "openai_narrative": OpenAINarrativeProvider,
 }
 
 
@@ -70,8 +73,8 @@ def load_provider_bundle(environment: str | None = None, config_dir: str = "conf
         environment=env_name,
         vertical=str(payload.get("vertical") or "default"),
         story=ProviderSlot(
-            primary=_build_provider(story_config.get("primary", {}), "mock_narrative"),
-            fallback=_build_provider(story_config.get("fallback", {}), "mock_narrative"),
+            primary=create_narrative_provider(story_config.get("primary", {})),
+            fallback=create_narrative_provider(story_config.get("fallback", {})),
         ),
         asset=ProviderSlot(
             primary=_build_provider(asset_config.get("primary", {}), "mock_asset"),
