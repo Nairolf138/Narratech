@@ -156,6 +156,7 @@ def _try_generate_single_shot(
     state: PipelineRuntimeState,
     max_retries: int,
     scope_label: str,
+    asset_refs: list[dict],
 ) -> dict:
     transient_error: Exception | None = None
 
@@ -172,7 +173,11 @@ def _try_generate_single_shot(
                     provider.generate_shots(
                         ProviderRequest(
                             request_id=request_id,
-                            payload={"request_id": request_id, "output": shot_doc["output"]},
+                            payload={
+                                "request_id": request_id,
+                                "output": shot_doc["output"],
+                                "asset_refs": asset_refs,
+                            },
                             timeout_sec=10.0,
                         )
                     )
@@ -180,7 +185,11 @@ def _try_generate_single_shot(
                     else provider.generate(
                         ProviderRequest(
                             request_id=request_id,
-                            payload={"request_id": request_id, "output": shot_doc["output"]},
+                            payload={
+                                "request_id": request_id,
+                                "output": shot_doc["output"],
+                                "asset_refs": asset_refs,
+                            },
                             timeout_sec=10.0,
                         )
                     )
@@ -194,6 +203,13 @@ def _try_generate_single_shot(
             shot_id = str(payload_clip.get("shot_id") or shot.get("id") or f"shot_{order:03d}")
             duration = float(payload_clip.get("duration") or shot.get("duration_sec") or 0.0)
             enriched_description = str(payload_clip.get("description_enriched") or shot.get("description") or "")
+            asset_dependencies = payload_clip.get("asset_dependencies")
+            if not isinstance(asset_dependencies, list):
+                asset_dependencies = [
+                    str(asset.get("id"))
+                    for asset in asset_refs
+                    if isinstance(asset, dict) and asset.get("id") is not None
+                ]
             file_path = Path("outputs/shots") / f"shot_{order:03d}_{_slugify(shot_id)[:60]}.txt"
             file_path.write_text(
                 (
@@ -215,6 +231,7 @@ def _try_generate_single_shot(
                 "cost_estimate": response.cost_estimate,
                 "model_name": response.model_name,
                 "quality_flag": "standard",
+                "asset_dependencies": asset_dependencies,
             }
         except (ProviderTimeout, ProviderRateLimit) as exc:
             transient_error = exc
@@ -242,6 +259,7 @@ def _generate_shots_with_targeted_retries(
     primary_provider: ShotProviderContract,
     secondary_provider: ShotProviderContract,
     asset_provider: AssetProviderContract,
+    asset_refs: list[dict],
 ) -> tuple[list[dict], dict]:
     output = scene_doc.get("output")
     if not isinstance(output, dict):
@@ -253,6 +271,7 @@ def _generate_shots_with_targeted_retries(
     Path("outputs/shots").mkdir(parents=True, exist_ok=True)
     request_id = str(scene_doc.get("request_id", "request_unknown"))
     clips: list[dict] = []
+    dependencies: list[dict] = []
     degraded_shots = 0
 
     for order, shot in enumerate(shots, start=1):
@@ -271,6 +290,7 @@ def _generate_shots_with_targeted_retries(
                 state=state,
                 max_retries=2,
                 scope_label="shot",
+                asset_refs=asset_refs,
             )
         except (ProviderTimeout, ProviderRateLimit):
             generated_clip = None
@@ -286,6 +306,7 @@ def _generate_shots_with_targeted_retries(
                     state=state,
                     max_retries=1,
                     scope_label="shot_fallback",
+                    asset_refs=asset_refs,
                 )
             except (ProviderTimeout, ProviderRateLimit):
                 generated_clip = None
@@ -299,7 +320,7 @@ def _generate_shots_with_targeted_retries(
                 scope_id=str(shot.get("id") or f"shot_{order:03d}"),
                 attempt=1,
             )
-            generate_assets(scene_doc, provider=asset_provider)
+            asset_refs = generate_assets(scene_doc, provider=asset_provider)
             try:
                 generated_clip = _try_generate_single_shot(
                     shot=shot,
@@ -309,6 +330,7 @@ def _generate_shots_with_targeted_retries(
                     state=state,
                     max_retries=0,
                     scope_label="asset_retry",
+                    asset_refs=asset_refs,
                 )
             except (ProviderTimeout, ProviderRateLimit):
                 generated_clip = None
@@ -331,6 +353,7 @@ def _generate_shots_with_targeted_retries(
                     state=state,
                     max_retries=0,
                     scope_label="scene_retry",
+                    asset_refs=asset_refs,
                 )
             except (ProviderTimeout, ProviderRateLimit):
                 generated_clip = None
@@ -343,8 +366,19 @@ def _generate_shots_with_targeted_retries(
                 request_id=request_id,
                 reason="primary+secondary indisponibles",
             )
+            generated_clip["asset_dependencies"] = [
+                str(asset.get("id"))
+                for asset in asset_refs
+                if isinstance(asset, dict) and asset.get("id") is not None
+            ]
 
         clips.append(generated_clip)
+        dependencies.append(
+            {
+                "shot_id": str(generated_clip.get("shot_id") or shot.get("id") or f"shot_{order:03d}"),
+                "asset_ids": list(generated_clip.get("asset_dependencies") or []),
+            }
+        )
 
     shots_manifest = {
         "request_id": request_id,
@@ -355,6 +389,7 @@ def _generate_shots_with_targeted_retries(
             "total_shots": len(clips),
             "degraded_ratio": (degraded_shots / len(clips)) if clips else 0.0,
         },
+        "asset_dependencies": dependencies,
     }
     write_json_utf8("outputs/shots/shots_manifest.json", shots_manifest)
     output["clips"] = clips
@@ -449,6 +484,7 @@ def _run_pipeline(args: list[str]) -> int:
             primary_provider=shot_provider,
             secondary_provider=shot_fallback_provider,
             asset_provider=asset_provider,
+            asset_refs=asset_refs,
         )
         state.set_degradation(
             total_shots=int(quality_metrics["total_shots"]),

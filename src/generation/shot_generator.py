@@ -20,7 +20,11 @@ def _slugify(value: str) -> str:
     return cleaned.strip("_") or "shot"
 
 
-def generate(scene_doc: dict, provider: ShotProviderContract | None = None) -> list[dict]:
+def generate(
+    scene_doc: dict,
+    provider: ShotProviderContract | None = None,
+    asset_refs: list[dict] | None = None,
+) -> list[dict]:
     """Écrit un fichier placeholder par shot via un provider injectable."""
     if not isinstance(scene_doc, dict):
         raise TypeError("scene_doc doit être un dictionnaire")
@@ -33,12 +37,20 @@ def generate(scene_doc: dict, provider: ShotProviderContract | None = None) -> l
 
     request_id = str(scene_doc.get("request_id", "request_unknown"))
     active_provider = provider or MockShotProvider()
+    resolved_asset_refs = asset_refs if asset_refs is not None else output.get("asset_refs")
+    if resolved_asset_refs is None:
+        resolved_asset_refs = []
+
     response = call_with_normalized_errors(
         lambda: (
             active_provider.generate_shots(
                 ProviderRequest(
                     request_id=request_id,
-                    payload={"request_id": request_id, "output": output},
+                    payload={
+                        "request_id": request_id,
+                        "output": output,
+                        "asset_refs": resolved_asset_refs,
+                    },
                     timeout_sec=10.0,
                 )
             )
@@ -46,7 +58,11 @@ def generate(scene_doc: dict, provider: ShotProviderContract | None = None) -> l
             else active_provider.generate(
                 ProviderRequest(
                     request_id=request_id,
-                    payload={"request_id": request_id, "output": output},
+                    payload={
+                        "request_id": request_id,
+                        "output": output,
+                        "asset_refs": resolved_asset_refs,
+                    },
                     timeout_sec=10.0,
                 )
             )
@@ -57,7 +73,13 @@ def generate(scene_doc: dict, provider: ShotProviderContract | None = None) -> l
     if not isinstance(provider_clips, list):
         raise ValueError("Le provider de shots doit retourner data.clips sous forme de liste")
 
+    fallback_asset_dependency_ids = [
+        str(asset.get("id"))
+        for asset in resolved_asset_refs
+        if isinstance(asset, dict) and asset.get("id") is not None
+    ]
     clips: list[dict] = []
+    dependencies: list[dict] = []
     for order, clip in enumerate(provider_clips, start=1):
         if not isinstance(clip, dict):
             continue
@@ -65,6 +87,9 @@ def generate(scene_doc: dict, provider: ShotProviderContract | None = None) -> l
         shot_id = str(clip.get("shot_id") or f"shot_{order:03d}")
         duration = float(clip.get("duration") or 0.0)
         enriched_description = str(clip.get("description_enriched") or "")
+        asset_dependency_ids = clip.get("asset_dependencies")
+        if not isinstance(asset_dependency_ids, list):
+            asset_dependency_ids = fallback_asset_dependency_ids
         slug = _slugify(shot_id)[:60]
 
         file_name = f"shot_{order:03d}_{slug}.txt"
@@ -89,10 +114,20 @@ def generate(scene_doc: dict, provider: ShotProviderContract | None = None) -> l
                 "latency_ms": response.latency_ms,
                 "cost_estimate": response.cost_estimate,
                 "model_name": response.model_name,
+                "asset_dependencies": asset_dependency_ids,
             }
         )
+        dependencies.append({"shot_id": shot_id, "asset_ids": asset_dependency_ids})
 
-    write_json_utf8(SHOTS_ROOT / "shots_manifest.json", {"request_id": request_id, "clips": clips, "count": len(clips)})
+    write_json_utf8(
+        SHOTS_ROOT / "shots_manifest.json",
+        {
+            "request_id": request_id,
+            "clips": clips,
+            "count": len(clips),
+            "asset_dependencies": dependencies,
+        },
+    )
 
     output["clips"] = clips
     return clips
