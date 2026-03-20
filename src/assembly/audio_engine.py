@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.core.io_utils import write_json_utf8
-from src.providers import MockAudioProvider, ProviderRequest
+from src.providers import BaseProvider, MockAudioProvider, ProviderRequest
 
 AUDIO_ROOT = Path("outputs/audio")
 
@@ -28,8 +28,13 @@ def _extract_shots(scene_doc: dict) -> list[dict]:
     return [shot for shot in shots if isinstance(shot, dict)]
 
 
-def build_from_audio_plan(scene_doc: dict) -> list[dict]:
-    """Génère des artefacts audio mock (voix off + ambiance) à partir du narratif."""
+def build_from_audio_plan(
+    scene_doc: dict,
+    *,
+    provider: BaseProvider | None = None,
+    timeout_sec: float = 10.0,
+) -> list[dict]:
+    """Génère des artefacts audio (voix off + ambiance) à partir du narratif."""
     if not isinstance(scene_doc, dict):
         raise TypeError("scene_doc doit être un dictionnaire")
 
@@ -52,11 +57,11 @@ def build_from_audio_plan(scene_doc: dict) -> list[dict]:
     request_id = str(scene_doc.get("request_id", "request_unknown"))
     AUDIO_ROOT.mkdir(parents=True, exist_ok=True)
 
-    provider = MockAudioProvider()
+    active_provider = provider or MockAudioProvider()
     shots = _extract_shots(scene_doc)
     input_doc = scene_doc.get("input") if isinstance(scene_doc.get("input"), dict) else {}
 
-    voice_response = provider.synthesize_audio(
+    voice_response = active_provider.synthesize_audio(
         ProviderRequest(
             request_id=request_id,
             payload={
@@ -71,11 +76,11 @@ def build_from_audio_plan(scene_doc: dict) -> list[dict]:
                 "shots": shots,
                 "format": "txt",
             },
-            timeout_sec=10.0,
+            timeout_sec=timeout_sec,
         )
     )
 
-    ambience_response = provider.synthesize_audio(
+    ambience_response = active_provider.synthesize_audio(
         ProviderRequest(
             request_id=request_id,
             payload={
@@ -87,7 +92,7 @@ def build_from_audio_plan(scene_doc: dict) -> list[dict]:
                 "shots": shots,
                 "format": "txt",
             },
-            timeout_sec=10.0,
+            timeout_sec=timeout_sec,
         )
     )
 

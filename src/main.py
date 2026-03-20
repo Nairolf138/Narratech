@@ -31,7 +31,7 @@ from src.core.schema_validator import (
     validate_narrative_file,
 )
 from src.core.user_context import build_user_context
-from src.config import load_provider_bundle
+from src.config import ConfigValidationError, load_provider_bundle
 from src.core.story_engine import StoryEngine
 from src.generation.asset_generator import generate as generate_assets
 from src.generation.shot_generator import generate as generate_shots
@@ -631,7 +631,11 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
             return 1
 
         # Providers injectés via configuration d'environnement (config/providers.<env>.json)
-        provider_bundle = load_provider_bundle()
+        try:
+            provider_bundle = load_provider_bundle()
+        except ConfigValidationError as exc:
+            print(f"Configuration invalide au démarrage: {exc}")
+            return EXIT_USAGE_ERROR
         story_provider = provider_bundle.story.primary
         story_fallback_provider = provider_bundle.story.fallback
         story_fallback_policy = provider_bundle.story.fallback_policy
@@ -640,6 +644,8 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
         asset_fallback_policy = provider_bundle.asset.fallback_policy
         shot_provider = provider_bundle.shot.primary
         shot_fallback_provider = provider_bundle.shot.fallback
+        audio_provider = provider_bundle.audio.primary
+        audio_timeout_sec = float(getattr(audio_provider, "_config", {}).get("timeout_sec", 10.0)) if hasattr(audio_provider, "_config") else 10.0
 
         # 2) StoryEngine
         log_step("génération story")
@@ -828,7 +834,7 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
 
         # 6) AudioEngine
         log_step("génération audio")
-        audio_artifacts = build_from_audio_plan(enriched_narrative)
+        audio_artifacts = build_from_audio_plan(enriched_narrative, provider=audio_provider, timeout_sec=audio_timeout_sec)
         print("[6/7] Audio généré")
 
         # 7) VideoAssembler
