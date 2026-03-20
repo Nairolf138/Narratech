@@ -61,7 +61,10 @@ def test_smoke_pipeline_mock_e2e(
 
     final_path = Path(final_video_path)
     assert final_path.exists()
-    assert final_path.read_text(encoding="utf-8").strip()
+    assert final_path.read_bytes()
+
+    assembly_manifest = isolated_workdir / "outputs" / "final" / "assembly_manifest.json"
+    assert assembly_manifest.exists()
 
     assert (isolated_workdir / "outputs" / "scene.json").exists()
     assert (isolated_workdir / "outputs" / "scene_enriched.json").exists()
