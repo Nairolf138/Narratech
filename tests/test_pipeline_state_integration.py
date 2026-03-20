@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import src.config.providers as provider_config
 from src.core.story_engine import StoryEngine
 from src.main import _run_pipeline
 
@@ -57,6 +58,10 @@ def test_pipeline_state_tracks_nominal_transitions(isolated_workdir: Path) -> No
     assert asset_manifest["request_id"] == request_id
     assert manifest["recommendation_file"] == "outputs/recommendation.json"
     assert (isolated_workdir / "outputs" / "recommendation.json").exists()
+    assert manifest["feedback_capture_file"] == "outputs/feedback_capture.json"
+    assert manifest["feedback_audit_file"] == "outputs/feedback_audit_preview.json"
+    assert (isolated_workdir / "outputs" / "feedback_capture.json").exists()
+    assert (isolated_workdir / "outputs" / "feedback_audit_preview.json").exists()
 
 
 def test_pipeline_state_tracks_failure_transition(
@@ -135,7 +140,7 @@ def test_pipeline_state_done_with_warnings_when_degraded_ratio_under_threshold(
 
             return ProviderHealth(ok=True)
 
-    monkeypatch.setattr("src.main.MockShotProvider", DegradedOnceShotProvider)
+    monkeypatch.setitem(provider_config._PROVIDER_REGISTRY, "mock_shot", DegradedOnceShotProvider)
     (isolated_workdir / ".narratech_degraded_ratio_threshold").write_text("0.5\n", encoding="utf-8")
 
     exit_code = _run_pipeline([])
@@ -168,7 +173,7 @@ def test_pipeline_state_fails_when_degraded_ratio_over_threshold(
 
             return ProviderHealth(ok=True)
 
-    monkeypatch.setattr("src.main.MockShotProvider", AlwaysFailShotProvider)
+    monkeypatch.setitem(provider_config._PROVIDER_REGISTRY, "mock_shot", AlwaysFailShotProvider)
     (isolated_workdir / ".narratech_degraded_ratio_threshold").write_text("0.1\n", encoding="utf-8")
 
     exit_code = _run_pipeline([])
@@ -203,3 +208,33 @@ def test_pipeline_shots_manifest_references_generated_assets(
         shot_id = clip["shot_id"]
         assert clip["asset_dependencies"] == expected_asset_ids
         assert dependencies_by_shot[shot_id] == expected_asset_ids
+
+
+def test_pipeline_applies_feedback_adjustments_to_next_generation(
+    isolated_workdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NARRATECH_SESSION_ID", "session_feedback_flow")
+    (isolated_workdir / "outputs").mkdir(parents=True, exist_ok=True)
+    (isolated_workdir / "outputs" / "feedback_input.json").write_text(
+        json.dumps(
+            {
+                "global_note": 2,
+                "dimensions": {"histoire": 1, "style": 2, "rythme": 1},
+                "commentaire": "à clarifier",
+            }
+        ),
+        encoding="utf-8",
+    )
+    first_exit = _run_pipeline([])
+    assert first_exit == 0
+
+    (isolated_workdir / "outputs" / "feedback_input.json").unlink()
+    second_exit = _run_pipeline([])
+    assert second_exit == 0
+
+    recommendation = _read_json(isolated_workdir / "outputs" / "recommendation.json")
+    applied = recommendation["inputs"]["applied_feedback_adjustments"]
+    assert applied is not None
+    assert applied["story"] == "clarify"
+    assert applied["rhythm"] == "slow_down"

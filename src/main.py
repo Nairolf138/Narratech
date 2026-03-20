@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import sys
 import time
+import os
 from pathlib import Path
 from collections.abc import Mapping
 from typing import Callable, TypeVar
@@ -17,6 +18,7 @@ from src.core.input_loader import load_prompt
 from src.core.io_utils import write_json_utf8
 from src.core.logger import log_step, log_transition
 from src.core.pipeline_state import PipelineRuntimeState, PipelineStage
+from src.core.feedback_engine import FeedbackEngine, load_feedback_input
 from src.core.recommendation_engine import RecommendationEngine
 from src.core.schema_validator import (
     ENRICHED_SCHEMA_PATH,
@@ -488,10 +490,21 @@ def _run_pipeline(args: list[str]) -> int:
         # 1) load_prompt
         log_step("chargement prompt")
         prompt = load_prompt(args)
-        user_profile = build_user_context({"identity": {"session_id": f"session_{request_id}"}})
+        session_id = os.getenv("NARRATECH_SESSION_ID", "session_default")
+        user_profile = build_user_context({"identity": {"session_id": session_id}})
         prompt_path = Path("outputs/prompt.txt")
         prompt_path.write_text(prompt + "\n", encoding="utf-8")
         _transition(PipelineStage.PROMPT_LOADED, "Prompt chargé avec succès")
+
+        feedback_engine = FeedbackEngine()
+        prior_adjustments = feedback_engine.latest_adjustments_for_session(session_id=session_id)
+        applied_feedback_adjustments = prior_adjustments.to_dict() if prior_adjustments is not None else None
+        if prior_adjustments is not None:
+            prompt = (
+                f"{prompt}\n\n[AJUSTEMENTS_SESSION_PRECEDENTE]\n"
+                + "\n".join(f"- {item}" for item in prior_adjustments.instructions)
+            )
+            log_step("ajustements de feedback appliqués depuis la session précédente")
 
         # Providers injectés via configuration d'environnement (config/providers.<env>.json)
         provider_bundle = load_provider_bundle()
@@ -543,7 +556,7 @@ def _run_pipeline(args: list[str]) -> int:
         coherence_metrics = _build_coherence_metrics(consistency_report)
         recommender = RecommendationEngine()
         recommendation = recommender.recommend(
-            user_id=user_profile["identity"]["session_id"],
+            user_id=session_id,
             generated_content=enriched_narrative,
             user_feedback={},
             coherence_metrics=coherence_metrics,
@@ -551,17 +564,52 @@ def _run_pipeline(args: list[str]) -> int:
         )
         recommendation_payload = {
             "request_id": request_id,
-            "user_id": user_profile["identity"]["session_id"],
+            "user_id": session_id,
             "inputs": {
                 "coherence_metrics": coherence_metrics,
                 "feedback": {},
                 "generated_content_ref": "outputs/scene_enriched.json",
+                "applied_feedback_adjustments": applied_feedback_adjustments,
             },
             "outputs": recommendation.to_dict(),
-            "history_preview": recommender.history_store.recent(user_id=user_profile["identity"]["session_id"]),
+            "history_preview": recommender.history_store.recent(user_id=session_id),
             "engine": "heuristic_v1",
         }
         recommendation_path = write_json_utf8("outputs/recommendation.json", recommendation_payload)
+
+        feedback_input = load_feedback_input()
+        feedback_event = feedback_engine.capture_feedback(
+            request_id=request_id,
+            session_id=session_id,
+            feedback_payload=feedback_input,
+        )
+        feedback_capture_path = write_json_utf8(
+            "outputs/feedback_capture.json",
+            {
+                "request_id": request_id,
+                "session_id": session_id,
+                "captured": feedback_event,
+            },
+        )
+        feedback_audit_event = None
+        if feedback_event is not None:
+            next_adjustments = feedback_engine.derive_adjustments(feedback_event=feedback_event)
+            feedback_audit_event = feedback_engine.audit_adjustments(
+                request_id=request_id,
+                session_id=session_id,
+                source_request_id=request_id,
+                adjustments=next_adjustments,
+            )
+            log_step("feedback capturé et règles d'ajustement calculées pour la session suivante")
+        feedback_audit_path = write_json_utf8(
+            "outputs/feedback_audit_preview.json",
+            {
+                "request_id": request_id,
+                "session_id": session_id,
+                "applied_adjustments": applied_feedback_adjustments,
+                "new_audit_event": feedback_audit_event,
+            },
+        )
 
         _transition(PipelineStage.CONSISTENCY_ENRICHED, "Cohérence enrichie, rapport et recommandations générés")
 
@@ -654,6 +702,8 @@ def _run_pipeline(args: list[str]) -> int:
             "scene_enriched_file": scene_enriched_path.as_posix(),
             "consistency_report_file": consistency_report_path.as_posix(),
             "recommendation_file": recommendation_path.as_posix(),
+            "feedback_capture_file": feedback_capture_path.as_posix(),
+            "feedback_audit_file": feedback_audit_path.as_posix(),
             "assets_dir": "assets",
             "asset_refs": [asset.get("uri") for asset in asset_refs if isinstance(asset, dict)],
             "shots_dir": "outputs/shots",
