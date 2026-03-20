@@ -60,6 +60,33 @@ python scripts/run_demo_happy_path.py "Votre prompt"
 
 ---
 
+
+## 🖥️ Prototype UI minimal (web)
+
+Un prototype UI local est disponible pour couvrir :
+
+1. formulaire préférences + prompt,
+2. lecteur vidéo du rendu final,
+3. formulaire feedback post-visionnage,
+4. échange standardisé via API locale + fichiers JSONL.
+
+### Lancer l'UI
+
+```bash
+python scripts/ui_prototype_server.py
+```
+
+Puis ouvrir `http://127.0.0.1:8080`.
+
+### Fichiers d'échange écrits
+
+- `outputs/ui_exchange/generation_requests.jsonl`
+- `outputs/ui_exchange/post_watch_feedback.jsonl`
+
+Le lecteur vidéo tente de charger `outputs/final/final_video.mp4`.
+
+---
+
 ## 🧠 Concept
 Narratech est un **orchestrateur**, pas un modèle d’IA.
 

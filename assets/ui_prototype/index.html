@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Narratech UI Prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      body {
+        margin: 0;
+        background: #f5f7fb;
+        color: #172033;
+      }
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 24px 16px 48px;
+      }
+      .card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 12px rgba(12, 21, 39, 0.08);
+        padding: 20px;
+        margin-bottom: 18px;
+      }
+      h1 { margin: 0 0 16px; }
+      h2 { margin-top: 0; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      label {
+        font-size: 0.92rem;
+        display: block;
+        margin-bottom: 6px;
+      }
+      input, select, textarea, button {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #d8dfec;
+        border-radius: 8px;
+        padding: 10px;
+        font-size: 0.95rem;
+      }
+      textarea { min-height: 92px; }
+      button {
+        background: #2d5bff;
+        color: white;
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      button.secondary { background: #0f6b56; }
+      .status {
+        margin-top: 10px;
+        font-size: 0.9rem;
+        color: #425271;
+      }
+      .video-wrap {
+        background: #0a0f1d;
+        border-radius: 10px;
+        padding: 10px;
+      }
+      video {
+        width: 100%;
+        border-radius: 8px;
+        background: #000;
+        min-height: 240px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Narratech — Prototype UI minimal</h1>
+
+      <section class="card">
+        <h2>1) Préférences + prompt</h2>
+        <form id="generation-form">
+          <div class="grid">
+            <div>
+              <label for="tone">Ton narratif</label>
+              <select id="tone" name="tone" required>
+                <option value="inspirant">Inspirant</option>
+                <option value="epique">Épique</option>
+                <option value="documentaire">Documentaire</option>
+              </select>
+            </div>
+            <div>
+              <label for="duration">Durée cible (secondes)</label>
+              <input id="duration" name="duration" type="number" min="10" max="180" value="30" required />
+            </div>
+            <div>
+              <label for="language">Langue voix off</label>
+              <select id="language" name="language" required>
+                <option value="fr">Français</option>
+                <option value="en">Anglais</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:12px;">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt" name="prompt" placeholder="Décris l'histoire à générer..." required></textarea>
+          </div>
+          <div style="margin-top:12px;">
+            <button type="submit">Envoyer au pipeline local</button>
+          </div>
+        </form>
+        <p class="status" id="generation-status">Aucune demande envoyée.</p>
+      </section>
+
+      <section class="card">
+        <h2>2) Lecteur vidéo du rendu final</h2>
+        <div class="video-wrap">
+          <video id="final-video" controls preload="metadata">
+            <source id="video-source" src="" type="video/mp4" />
+            Votre navigateur ne supporte pas la lecture vidéo.
+          </video>
+        </div>
+        <p class="status" id="video-status">
+          Aucun fichier chargé. Déposez un MP4 local dans <code>outputs/final/final_video.mp4</code> puis cliquez sur « Charger ».
+        </p>
+        <button id="load-video" type="button" style="margin-top:10px;">Charger le rendu local</button>
+      </section>
+
+      <section class="card">
+        <h2>3) Feedback post-visionnage</h2>
+        <form id="feedback-form">
+          <div class="grid">
+            <div>
+              <label for="rating">Note globale (1-5)</label>
+              <input id="rating" name="rating" type="number" min="1" max="5" value="4" required />
+            </div>
+            <div>
+              <label for="coherence">Cohérence narrative (1-5)</label>
+              <input id="coherence" name="coherence" type="number" min="1" max="5" value="4" required />
+            </div>
+          </div>
+          <div style="margin-top:12px;">
+            <label for="feedback">Commentaires</label>
+            <textarea id="feedback" name="feedback" placeholder="Ce qui fonctionne / à améliorer"></textarea>
+          </div>
+          <div style="margin-top:12px;">
+            <button class="secondary" type="submit">Enregistrer feedback</button>
+          </div>
+        </form>
+        <p class="status" id="feedback-status">Aucun feedback enregistré.</p>
+      </section>
+    </main>
+
+    <script>
+      const generationForm = document.getElementById("generation-form");
+      const generationStatus = document.getElementById("generation-status");
+      const feedbackForm = document.getElementById("feedback-form");
+      const feedbackStatus = document.getElementById("feedback-status");
+      const loadVideoButton = document.getElementById("load-video");
+      const video = document.getElementById("final-video");
+      const videoSource = document.getElementById("video-source");
+      const videoStatus = document.getElementById("video-status");
+
+      generationForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const payload = Object.fromEntries(new FormData(generationForm).entries());
+        payload.duration = Number(payload.duration);
+
+        const response = await fetch("/api/generation-request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          generationStatus.textContent = "Erreur lors de l'envoi de la demande.";
+          return;
+        }
+
+        const body = await response.json();
+        generationStatus.textContent = `Demande enregistrée (${body.record_id}) dans ${body.exchange_file}`;
+      });
+
+      loadVideoButton.addEventListener("click", () => {
+        const cacheBuster = Date.now();
+        videoSource.src = `/outputs/final/final_video.mp4?t=${cacheBuster}`;
+        video.load();
+        videoStatus.textContent = "Chargement de outputs/final/final_video.mp4...";
+      });
+
+      video.addEventListener("loadeddata", () => {
+        videoStatus.textContent = "Rendu final chargé. Lancez la lecture puis envoyez un feedback.";
+      });
+
+      video.addEventListener("error", () => {
+        videoStatus.textContent = "Impossible de charger outputs/final/final_video.mp4 (fichier absent ou invalide).";
+      });
+
+      feedbackForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const payload = Object.fromEntries(new FormData(feedbackForm).entries());
+        payload.rating = Number(payload.rating);
+        payload.coherence = Number(payload.coherence);
+
+        const response = await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          feedbackStatus.textContent = "Erreur lors de l'enregistrement du feedback.";
+          return;
+        }
+
+        const body = await response.json();
+        feedbackStatus.textContent = `Feedback enregistré (${body.record_id}) dans ${body.exchange_file}`;
+      });
+    </script>
+  </body>
+</html>
