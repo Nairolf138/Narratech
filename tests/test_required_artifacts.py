@@ -31,6 +31,8 @@ def test_pipeline_generates_required_manifests(isolated_workdir: Path) -> None:
     coherence_metrics = _read_json(coherence_metrics_path)
 
     assert manifest["shots_manifest_file"] == "outputs/shots/shots_manifest.json"
+    assert manifest["legal_compliance_checks_file"] == "outputs/legal_compliance_checks.json"
+    assert manifest["legal_compliance_status"] == "ok"
     assert manifest["request_id"]
     assert shots_manifest["request_id"] == manifest["request_id"]
     assert shots_manifest["count"] > 0
@@ -38,7 +40,21 @@ def test_pipeline_generates_required_manifests(isolated_workdir: Path) -> None:
     assert len(shots_manifest["asset_dependencies"]) == shots_manifest["count"]
     assert coherence_metrics["request_id"] == manifest["request_id"]
     assert "subscores" in coherence_metrics
+    legal_checks_path = isolated_workdir / "outputs" / "legal_compliance_checks.json"
+    assert legal_checks_path.exists()
+    legal_checks = _read_json(legal_checks_path)
+    assert legal_checks["status"] == "ok"
+    assert legal_checks["failing_checks"] == []
     assert (isolated_workdir / "outputs" / f"coherence_metrics_{manifest['request_id']}.json").exists()
+
+    scene = _read_json(isolated_workdir / "outputs" / "scene.json")
+    metadata = scene.get("metadata", {})
+    consent = metadata.get("consent", {})
+    provenance = metadata.get("provenance", {})
+    assert consent["user_consent_for_generation"] is True
+    assert consent["user_consent_for_export"] is True
+    assert consent["session_id"]
+    assert provenance["input_origin"] == "user_prompt"
 
 
 def test_pipeline_generates_audio_outputs(isolated_workdir: Path) -> None:

@@ -207,6 +207,47 @@
           "fallback_reason": { "type": "string", "minLength": 1 }
         }
       }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consent", "provenance"],
+      "properties": {
+        "consent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "user_consent_for_generation",
+            "user_consent_for_export",
+            "consent_source",
+            "session_id",
+            "captured_at"
+          ],
+          "properties": {
+            "user_consent_for_generation": { "type": "boolean" },
+            "user_consent_for_export": { "type": "boolean" },
+            "consent_source": { "type": "string", "minLength": 1 },
+            "session_id": { "type": "string", "minLength": 1 },
+            "captured_at": { "type": "string", "minLength": 1 }
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "input_origin",
+            "generation_mode",
+            "human_review_required",
+            "generated_at"
+          ],
+          "properties": {
+            "input_origin": { "type": "string", "minLength": 1 },
+            "generation_mode": { "type": "string", "minLength": 1 },
+            "human_review_required": { "type": "boolean" },
+            "generated_at": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
     }
   }
 }
