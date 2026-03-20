@@ -12,9 +12,10 @@ from .base import (
     ProviderTimeout,
 )
 from .adapter import call_with_normalized_errors, normalize_provider_error
-from .contracts import AssetProviderContract, NarrativeProviderContract, ShotProviderContract
+from .contracts import AudioProviderContract, AssetProviderContract, NarrativeProviderContract, ShotProviderContract
 from .local_asset_provider import LocalAssetProvider
 from .mock_asset_provider import MockAssetProvider
+from .mock_audio_provider import MockAudioProvider
 from .mock_narrative_provider import MockNarrativeProvider
 from .mock_shot_provider import MockShotProvider
 from .picsum_shot_provider import PicsumShotProvider
@@ -37,8 +38,10 @@ __all__ = [
     "NarrativeProviderContract",
     "AssetProviderContract",
     "ShotProviderContract",
+    "AudioProviderContract",
     "MockNarrativeProvider",
     "MockAssetProvider",
+    "MockAudioProvider",
     "LocalAssetProvider",
     "MockShotProvider",
     "PicsumShotProvider",

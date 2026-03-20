@@ -10,9 +10,11 @@ from src.main import _execute_with_retry_and_fallback, _generate_shots_with_targ
 from src.providers import (
     AssetProviderContract,
     MockAssetProvider,
+    MockAudioProvider,
     MockNarrativeProvider,
     MockShotProvider,
     NarrativeProviderContract,
+    AudioProviderContract,
     ProviderInvalidResponse,
     ProviderRateLimit,
     ProviderRequest,
@@ -30,10 +32,23 @@ from src.providers.adapter import call_with_normalized_errors
         (MockNarrativeProvider(), "generate_narrative", {"prompt": "Un prompt valide"}, "output"),
         (MockAssetProvider(), "generate_assets", {"request_id": "req_contract", "output": {"characters": [], "scenes": []}}, "assets"),
         (MockShotProvider(), "generate_shots", {"request_id": "req_contract", "output": {"shots": []}}, "clips"),
+        (
+            MockAudioProvider(),
+            "synthesize_audio",
+            {
+                "request_id": "req_contract",
+                "mode": "voiceover",
+                "narrative_text": "Texte narratif",
+                "language": "fr",
+                "style": "cinematic",
+                "shots": [{"id": "shot_001", "duration_sec": 3.0}],
+            },
+            "audio_file",
+        ),
     ],
 )
 def test_provider_contracts_return_expected_types_and_observability(
-    provider: NarrativeProviderContract | AssetProviderContract | ShotProviderContract,
+    provider: NarrativeProviderContract | AssetProviderContract | ShotProviderContract | AudioProviderContract,
     method_name: str,
     payload: dict,
     expected_key: str,
@@ -63,6 +78,12 @@ def test_provider_contracts_raise_expected_error_types() -> None:
 
     with pytest.raises(ProviderInvalidResponse):
         MockShotProvider().generate_shots(ProviderRequest(request_id="req_err_3", payload={"output": {}}))
+
+
+    with pytest.raises(ProviderInvalidResponse):
+        MockAudioProvider().synthesize_audio(
+            ProviderRequest(request_id="req_err_4", payload={"mode": "voiceover"})
+        )
 
 
 def test_provider_error_adapter_normalizes_runtime_error() -> None:

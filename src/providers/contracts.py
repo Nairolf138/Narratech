@@ -54,3 +54,19 @@ class ShotProviderContract(ABC):
     @abstractmethod
     def healthcheck(self) -> ProviderHealth:
         """Retourne l'état de santé du provider."""
+
+
+class AudioProviderContract(ABC):
+    """Contrat explicite pour un provider de synthèse audio."""
+
+    @abstractmethod
+    def configure(self, config: Mapping[str, Any]) -> None:
+        """Configure le provider."""
+
+    @abstractmethod
+    def synthesize_audio(self, request: ProviderRequest) -> ProviderResponse:
+        """Génère une piste audio (voix off ou ambiance) avec timestamps alignés."""
+
+    @abstractmethod
+    def healthcheck(self) -> ProviderHealth:
+        """Retourne l'état de santé du provider."""
