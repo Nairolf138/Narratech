@@ -90,3 +90,53 @@ def test_pipeline_continues_on_non_blocking_consistency_issues(
     assert exit_code == 0
     assert (isolated_workdir / "outputs" / "consistency_report.json").exists()
     assert (isolated_workdir / "outputs" / "final" / "final_video.mp4").exists()
+
+
+def test_pipeline_stops_on_safety_pre_generation_block(
+    isolated_workdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (isolated_workdir / "config").mkdir(parents=True, exist_ok=True)
+    (isolated_workdir / "config" / "safety_blacklist.json").write_text(
+        json.dumps({"topics": ["interdit"]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("src.main.load_prompt", lambda _args: "Un prompt interdit.")
+
+    exit_code = _run_pipeline([])
+
+    assert exit_code == 1
+    audit_path = isolated_workdir / "outputs" / "safety_audit.json"
+    assert audit_path.exists()
+    events = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert events[-1]["phase"] == "pre_generation_prompt"
+
+
+def test_pipeline_stops_on_safety_post_generation_block(
+    isolated_workdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    narrative = _valid_narrative()
+    output = narrative.get("output")
+    assert isinstance(output, dict)
+    output["synopsis"] = "Synopsis avec sujet interdit."
+
+    (isolated_workdir / "config").mkdir(parents=True, exist_ok=True)
+    (isolated_workdir / "config" / "safety_blacklist.json").write_text(
+        json.dumps({"topics": ["interdit"]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("src.main.load_prompt", lambda _args: "prompt normal")
+    monkeypatch.setattr(
+        "src.main.StoryEngine",
+        lambda *args, **kwargs: type("Stub", (), {"generate": lambda _self, _p, request_id=None: narrative})(),
+    )
+
+    exit_code = _run_pipeline([])
+
+    assert exit_code == 1
+    audit_path = isolated_workdir / "outputs" / "safety_audit.json"
+    assert audit_path.exists()
+    events = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert events[-1]["phase"] == "post_generation_output"
