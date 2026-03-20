@@ -150,6 +150,11 @@ def _get_degraded_ratio_threshold() -> float:
         return DEFAULT_DEGRADED_RATIO_THRESHOLD
 
 
+def _is_degraded_audio_allowed() -> bool:
+    raw_value = os.getenv("NARRATECH_ALLOW_DEGRADED_AUDIO", "").strip().lower()
+    return raw_value in {"1", "true", "yes", "on"}
+
+
 def _assert_required_artifacts() -> None:
     """Vérifie la présence et la structure minimale des artefacts obligatoires."""
     required_paths = (
@@ -834,8 +839,31 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
 
         # 6) AudioEngine
         log_step("génération audio")
-        audio_artifacts = build_from_audio_plan(enriched_narrative, provider=audio_provider, timeout_sec=audio_timeout_sec)
-        print("[6/7] Audio généré")
+        try:
+            audio_artifacts = build_from_audio_plan(
+                enriched_narrative,
+                provider=audio_provider,
+                timeout_sec=audio_timeout_sec,
+            )
+            print("[6/7] Audio généré")
+        except Exception as exc:
+            if not _is_degraded_audio_allowed():
+                raise
+            state.register_error(stage=PipelineStage.FINAL_ASSEMBLED, reason=f"audio_degraded: {exc}")
+            write_json_utf8(
+                "outputs/audio/audio_manifest.json",
+                {
+                    "request_id": request_id,
+                    "source_contract": "output.audio_plan",
+                    "artifacts": [],
+                    "count": 0,
+                    "degraded_mode": True,
+                    "reason": str(exc),
+                },
+            )
+            audio_artifacts = []
+            log_step(f"audio dégradé autorisé: {exc}")
+            print("[6/7] Audio dégradé (mode non bloquant)")
 
         # 7) VideoAssembler
         log_step("assemblage final")
