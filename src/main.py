@@ -17,6 +17,7 @@ from src.core.input_loader import load_prompt
 from src.core.io_utils import write_json_utf8
 from src.core.logger import log_step, log_transition
 from src.core.pipeline_state import PipelineRuntimeState, PipelineStage
+from src.core.recommendation_engine import RecommendationEngine
 from src.core.schema_validator import (
     ENRICHED_SCHEMA_PATH,
     NarrativeValidationError,
@@ -448,6 +449,23 @@ def _generate_shots_with_targeted_retries(
     return clips, shots_manifest["quality"]
 
 
+
+
+def _build_coherence_metrics(consistency_report: list[dict]) -> dict[str, float]:
+    """Construit des métriques de cohérence minimales à partir du rapport de règles."""
+    total = len(consistency_report)
+    if total <= 0:
+        return {"coherence_score": 1.0, "max_tension_jump": 0.0, "trope_repetition_ratio": 0.0}
+
+    errors = sum(1 for item in consistency_report if isinstance(item, dict) and item.get("severity") == "error")
+    warnings = sum(1 for item in consistency_report if isinstance(item, dict) and item.get("severity") == "warning")
+    coherence_score = max(0.0, 1.0 - ((errors * 1.0 + warnings * 0.5) / total))
+    return {
+        "coherence_score": round(coherence_score, 3),
+        "max_tension_jump": 0.0,
+        "trope_repetition_ratio": 0.0,
+    }
+
 def _run_pipeline(args: list[str]) -> int:
     """Démarre le pipeline Narratech de bout en bout."""
     ensure_dirs()
@@ -521,7 +539,31 @@ def _run_pipeline(args: list[str]) -> int:
         validate_narrative_document(enriched_narrative, schema_path=ENRICHED_SCHEMA_PATH)
         consistency_report = consistency_result["consistency_report"]
         consistency_report_path = write_json_utf8("outputs/consistency_report.json", consistency_report)
-        _transition(PipelineStage.CONSISTENCY_ENRICHED, "Cohérence enrichie et rapport généré")
+
+        coherence_metrics = _build_coherence_metrics(consistency_report)
+        recommender = RecommendationEngine()
+        recommendation = recommender.recommend(
+            user_id=user_profile["identity"]["session_id"],
+            generated_content=enriched_narrative,
+            user_feedback={},
+            coherence_metrics=coherence_metrics,
+            request_id=request_id,
+        )
+        recommendation_payload = {
+            "request_id": request_id,
+            "user_id": user_profile["identity"]["session_id"],
+            "inputs": {
+                "coherence_metrics": coherence_metrics,
+                "feedback": {},
+                "generated_content_ref": "outputs/scene_enriched.json",
+            },
+            "outputs": recommendation.to_dict(),
+            "history_preview": recommender.history_store.recent(user_id=user_profile["identity"]["session_id"]),
+            "engine": "heuristic_v1",
+        }
+        recommendation_path = write_json_utf8("outputs/recommendation.json", recommendation_payload)
+
+        _transition(PipelineStage.CONSISTENCY_ENRICHED, "Cohérence enrichie, rapport et recommandations générés")
 
         if has_blocking_violations(consistency_report):
             log_step("échec cohérence bloquante")
@@ -611,6 +653,7 @@ def _run_pipeline(args: list[str]) -> int:
             "scene_file": scene_path.as_posix(),
             "scene_enriched_file": scene_enriched_path.as_posix(),
             "consistency_report_file": consistency_report_path.as_posix(),
+            "recommendation_file": recommendation_path.as_posix(),
             "assets_dir": "assets",
             "asset_refs": [asset.get("uri") for asset in asset_refs if isinstance(asset, dict)],
             "shots_dir": "outputs/shots",

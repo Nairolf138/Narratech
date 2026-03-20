@@ -55,6 +55,8 @@ def test_pipeline_state_tracks_nominal_transitions(isolated_workdir: Path) -> No
     assert scene["request_id"] == request_id
     assert shots_manifest["request_id"] == request_id
     assert asset_manifest["request_id"] == request_id
+    assert manifest["recommendation_file"] == "outputs/recommendation.json"
+    assert (isolated_workdir / "outputs" / "recommendation.json").exists()
 
 
 def test_pipeline_state_tracks_failure_transition(
