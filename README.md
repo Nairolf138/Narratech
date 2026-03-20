@@ -14,6 +14,52 @@ Ce projet ne vise pas la perfection visuelle, mais la **cohérence narrative et 
 
 ---
 
+
+## 🧪 Verticale de démonstration (figée)
+
+Une seule verticale est supportée pour la démo produit:
+
+- **Narration mock** (`MockNarrativeProvider`)
+- **Assets mock** (`MockAssetProvider`)
+- **Shots semi-réels** via URLs d'images Picsum (`PicsumShotProvider`)
+
+Cette verticale est pilotée par `config/providers.demo.json` avec `NARRATECH_ENV=demo`.
+
+---
+
+## ▶️ Runbook démo (court)
+
+### Pré-requis
+
+- Python 3.11+
+- Dépendances installées (`pip install -e .`)
+
+### Commande unique
+
+```bash
+python scripts/run_demo_happy_path.py "Votre prompt"
+```
+
+> Sans argument, le script utilise un prompt happy path figé.
+
+### Artefacts attendus
+
+- `outputs/manifest.json`
+- `outputs/scene.json`
+- `outputs/scene_enriched.json`
+- `outputs/consistency_report.json`
+- `outputs/shots/shots_manifest.json`
+- `outputs/final/final_video_manifest.txt`
+
+### Critères de succès de démo
+
+- **Temps total** ≤ 30s
+- **Nombre de shots** = 3
+- **% placeholders max** ≤ 20%
+- **Cohérence minimale**: score ≥ 0.80 (dérivé du `consistency_report`)
+
+---
+
 ## 🧠 Concept
 Narratech est un **orchestrateur**, pas un modèle d’IA.
 
@@ -125,49 +171,84 @@ find . \
 
 ```text
 .
+.github
+.github/workflows
+.github/workflows/ci.yml
 DECISIONS.md
 README.md
 SPEC.md
-main.py
 TODO.md
-assets/
-  .gitkeep
-docs/
-  consistency_rules.md
-  orchestration_flow.md
-  provider_contracts.md
+assets
+assets/.gitkeep
+config
+config/providers.demo.json
+config/providers.local.json
+docs
+docs/consistency_rules.md
+docs/orchestration_flow.md
+docs/provider_contracts.md
 example_prompt.txt
-outputs/
-  .gitkeep
-  scene.json
-  scene_enriched.json
-  final/
-    .gitkeep
-  shots/
-    .gitkeep
-schemas/
-  CHANGELOG.md
-  narrative.enriched.v1.schema.json
-  narrative.v1.schema.json
-src/
-  __init__.py
-  main.py
-  assembly/
-    __init__.py
-    video_assembler.py
-  core/
-    __init__.py
-    consistency_engine.py
-    input_loader.py
-    io_utils.py
-    logger.py
-    story_engine.py
-  generation/
-    __init__.py
-    asset_generator.py
-    shot_generator.py
-  providers/
-    __init__.py
+main.py
+outputs
+outputs/.gitkeep
+outputs/final
+outputs/final/.gitkeep
+outputs/scene.json
+outputs/scene_enriched.json
+outputs/shots
+outputs/shots/.gitkeep
+pyproject.toml
+pytest.ini
+schemas
+schemas/CHANGELOG.md
+schemas/narrative.enriched.v1.schema.json
+schemas/narrative.v1.schema.json
+scripts
+scripts/run_demo_happy_path.py
+src
+src/__init__.py
+src/assembly
+src/assembly/__init__.py
+src/assembly/audio_engine.py
+src/assembly/video_assembler.py
+src/config
+src/config/__init__.py
+src/config/providers.py
+src/core
+src/core/__init__.py
+src/core/consistency_engine.py
+src/core/input_loader.py
+src/core/io_utils.py
+src/core/logger.py
+src/core/pipeline_state.py
+src/core/schema_validator.py
+src/core/story_engine.py
+src/generation
+src/generation/__init__.py
+src/generation/asset_generator.py
+src/generation/shot_generator.py
+src/main.py
+src/providers
+src/providers/__init__.py
+src/providers/adapter.py
+src/providers/base.py
+src/providers/contracts.py
+src/providers/mock_asset_provider.py
+src/providers/mock_narrative_provider.py
+src/providers/mock_shot_provider.py
+src/providers/picsum_shot_provider.py
+tests
+tests/ci
+tests/ci/check_coverage_thresholds.py
+tests/conftest.py
+tests/test_cli.py
+tests/test_consistency_engine.py
+tests/test_pipeline_blocking.py
+tests/test_pipeline_state_integration.py
+tests/test_provider_orchestration.py
+tests/test_required_artifacts.py
+tests/test_schema_validator.py
+tests/test_smoke_pipeline_mock.py
 ```
 
 _Note de maintenance : régénérer cette section à chaque changement de structure (ajout/suppression/déplacement de fichiers ou dossiers), idéalement par la personne qui ouvre la PR concernée._
