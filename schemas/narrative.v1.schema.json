@@ -186,7 +186,9 @@
           "provider": { "type": "string", "minLength": 1 },
           "model": { "type": "string", "minLength": 1 },
           "trace_id": { "type": "string", "minLength": 1 },
-          "latency_ms": { "type": "integer", "minimum": 0 }
+          "latency_ms": { "type": "integer", "minimum": 0 },
+          "fallback_mode": { "type": "boolean" },
+          "fallback_reason": { "type": "string", "minLength": 1 }
         }
       }
     }

@@ -3,11 +3,21 @@
   "providers": {
     "story": {
       "primary": { "type": "mock_narrative", "config": {} },
-      "fallback": { "type": "mock_narrative", "config": {} }
+      "fallback": { "type": "mock_narrative", "config": {} },
+      "fallback_policy": {
+        "enabled": true,
+        "trigger_on": ["ProviderTimeout", "ProviderRateLimit"],
+        "activate_after_attempt": 2
+      }
     },
     "asset": {
       "primary": { "type": "mock_asset", "config": {} },
-      "fallback": { "type": "mock_asset", "config": {} }
+      "fallback": { "type": "mock_asset", "config": {} },
+      "fallback_policy": {
+        "enabled": true,
+        "trigger_on": ["ProviderTimeout", "ProviderRateLimit"],
+        "activate_after_attempt": 2
+      }
     },
     "shot": {
       "primary": { "type": "mock_shot", "config": {} },
