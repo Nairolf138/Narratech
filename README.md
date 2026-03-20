@@ -159,7 +159,7 @@ Ajoute :
 
 ## 📁 Structure du projet
 
-Arborescence générée avec :
+Arborescence **réellement présente** (vérifiée le **2026-03-20**) :
 
 ```bash
 find . \
@@ -169,52 +169,89 @@ find . \
   -o -print | sed 's#^\./##' | sort
 ```
 
+### Structure racine (source de vérité)
+
 ```text
 .
-.github
-.github/workflows
+.github/
+assets/
+config/
+docs/
+outputs/
+schemas/
+scripts/
+src/
+tests/
+DECISIONS.md
+README.md
+SPEC.md
+TODO.md
+example_prompt.txt
+main.py
+pyproject.toml
+pytest.ini
+```
+
+### Détail des répertoires de référence (source de vérité)
+
+- `src/providers/` : implémentations providers + contrat Python local (`contracts.py`).
+- `schemas/` : contrats JSON Schema versionnés (source de vérité “contracts” côté schémas).
+- `src/providers/contracts.py` : contrat provider côté code (il n’existe pas de dossier racine `contracts/` à ce jour).
+- `tests/` : tests unitaires/intégration/e2e.
+- `docs/` : documentation fonctionnelle et technique.
+
+### Détail complet (fichiers versionnés présents)
+
+```bash
+rg --files | sort
+```
+
+```text
+.
+.github/
+.github/workflows/
 .github/workflows/ci.yml
 DECISIONS.md
 README.md
 SPEC.md
 TODO.md
-assets
+assets/
 assets/.gitkeep
-config
+config/
 config/providers.demo.json
 config/providers.local.json
-docs
+docs/
 docs/consistency_rules.md
 docs/orchestration_flow.md
 docs/provider_contracts.md
 example_prompt.txt
 main.py
-outputs
+outputs/
 outputs/.gitkeep
-outputs/final
+outputs/final/
 outputs/final/.gitkeep
 outputs/scene.json
 outputs/scene_enriched.json
-outputs/shots
+outputs/shots/
 outputs/shots/.gitkeep
 pyproject.toml
 pytest.ini
-schemas
+schemas/
 schemas/CHANGELOG.md
 schemas/narrative.enriched.v1.schema.json
 schemas/narrative.v1.schema.json
-scripts
+scripts/
 scripts/run_demo_happy_path.py
-src
+src/
 src/__init__.py
-src/assembly
+src/assembly/
 src/assembly/__init__.py
 src/assembly/audio_engine.py
 src/assembly/video_assembler.py
-src/config
+src/config/
 src/config/__init__.py
 src/config/providers.py
-src/core
+src/core/
 src/core/__init__.py
 src/core/consistency_engine.py
 src/core/input_loader.py
@@ -237,23 +274,26 @@ src/providers/mock_asset_provider.py
 src/providers/mock_narrative_provider.py
 src/providers/mock_shot_provider.py
 src/providers/picsum_shot_provider.py
-tests
-tests/ci
+tests/
+tests/ci/
 tests/ci/check_coverage_thresholds.py
 tests/conftest.py
+tests/e2e/
+tests/e2e/test_smoke_pipeline.py
 tests/test_cli.py
 tests/test_consistency_engine.py
 tests/test_pipeline_blocking.py
 tests/test_pipeline_state_integration.py
+tests/test_provider_config.py
 tests/test_provider_orchestration.py
 tests/test_required_artifacts.py
 tests/test_schema_validator.py
 tests/test_smoke_pipeline_mock.py
 ```
 
-_Note de maintenance : régénérer cette section à chaque changement de structure (ajout/suppression/déplacement de fichiers ou dossiers), idéalement par la personne qui ouvre la PR concernée._
+_Convention “source de vérité” : en cas d’écart entre la documentation et le dépôt, la vérité est (dans cet ordre) : (1) structure racine ci-dessus, (2) contenus de `src/providers/`, `schemas/` (contrats), `tests/`, `docs/`, puis (3) le reste du README._
 
-_Cohérence vérifiée : le chemin référencé plus loin dans ce README (`schemas/narrative.v1.schema.json`) est présent dans cette arborescence._
+_Note de maintenance : régénérer cette section à chaque changement de structure (ajout/suppression/déplacement de fichiers ou dossiers), idéalement dans la même PR._
 
 ---
 
@@ -508,6 +548,8 @@ python main.py
 python main.py validate outputs/scene.json
 ```
 
+Chemins vérifiés (fichiers présents dans le dépôt) : `main.py`, `outputs/scene.json`, `pyproject.toml`.
+
 ### Commandes exactes — mode installé (script console)
 ```bash
 # depuis la racine du dépôt
@@ -523,6 +565,8 @@ narratech
 narratech validate outputs/scene.json
 ```
 
+Chemins vérifiés (fichiers présents dans le dépôt) : `main.py`, `outputs/scene.json`, `pyproject.toml`.
+
 ### Lancer le smoke test local
 ```bash
 # depuis la racine du dépôt (dans le même venv)
@@ -530,6 +574,7 @@ python -m pytest -k smoke
 ```
 
 Ce smoke test exécute un flux de bout en bout avec un pipeline mock local, sans appel réseau.
+Fichier de test correspondant présent : `tests/test_smoke_pipeline_mock.py` (et version e2e : `tests/e2e/test_smoke_pipeline.py`).
 
 ### Configuration minimale
 - Variables d'environnement : aucune requise.
@@ -539,7 +584,7 @@ Ce smoke test exécute un flux de bout en bout avec un pipeline mock local, sans
 ### Résultat attendu
 - Code de sortie `0`.
 - Logs de démarrage avec les étapes `[Narratech] ...`.
-- Artefacts générés :
+- Artefacts générés à l’exécution (non tous versionnés dans Git) :
   - `outputs/prompt.txt`
   - `outputs/scene.json`
   - `outputs/scene_enriched.json`
