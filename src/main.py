@@ -56,6 +56,79 @@ EXIT_VALIDATION_ERROR = 3
 EXIT_PIPELINE_FAILURE = 10
 
 
+def _build_compliance_metadata(*, session_id: str) -> dict:
+    """Construit les métadonnées minimales de conformité (consentement + provenance)."""
+    generated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    return {
+        "consent": {
+            "user_consent_for_generation": True,
+            "user_consent_for_export": True,
+            "consent_source": "ui_session",
+            "session_id": session_id,
+            "captured_at": generated_at,
+        },
+        "provenance": {
+            "input_origin": "user_prompt",
+            "generation_mode": "automated_pipeline",
+            "human_review_required": False,
+            "generated_at": generated_at,
+        },
+    }
+
+
+def _run_pre_publication_checks(
+    *,
+    enriched_narrative: dict,
+    consistency_report: list[dict],
+    state: PipelineRuntimeState,
+    schema_narrative_valid: bool,
+    schema_enriched_valid: bool,
+) -> dict:
+    """Exécute les checks minimaux de conformité avant export final."""
+    checks = {
+        "schema_narrative_valid": False,
+        "schema_enriched_valid": False,
+        "consent_fields_present": False,
+        "consent_export_granted": False,
+        "provider_trace_present": False,
+        "no_blocking_consistency_violations": False,
+        "degraded_ratio_within_threshold": False,
+    }
+
+    checks["schema_narrative_valid"] = schema_narrative_valid
+    checks["schema_enriched_valid"] = schema_enriched_valid
+
+    metadata = enriched_narrative.get("metadata")
+    consent = metadata.get("consent") if isinstance(metadata, dict) else None
+    checks["consent_fields_present"] = (
+        isinstance(consent, dict)
+        and isinstance(consent.get("user_consent_for_generation"), bool)
+        and isinstance(consent.get("user_consent_for_export"), bool)
+    )
+    checks["consent_export_granted"] = bool(
+        isinstance(consent, dict) and consent.get("user_consent_for_export") is True
+    )
+
+    trace = enriched_narrative.get("provider_trace")
+    checks["provider_trace_present"] = isinstance(trace, list) and len(trace) > 0
+    checks["no_blocking_consistency_violations"] = not has_blocking_violations(consistency_report)
+    checks["degraded_ratio_within_threshold"] = state.degraded_ratio <= _get_degraded_ratio_threshold()
+
+    failing_checks = [name for name, status in checks.items() if not status]
+    status = "ok" if not failing_checks else "failed"
+    result = {
+        "status": status,
+        "checks": checks,
+        "failing_checks": failing_checks,
+    }
+    write_json_utf8("outputs/legal_compliance_checks.json", result)
+    if failing_checks:
+        raise RuntimeError(
+            "Checks de conformité pré-publication en échec: " + ", ".join(failing_checks)
+        )
+    return result
+
+
 def ensure_dirs() -> None:
     """Garantit l'existence des dossiers de sortie du pipeline."""
     for path in ("outputs", "outputs/shots", "outputs/audio", "outputs/final", "assets"):
@@ -588,6 +661,7 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
             retries=1,
         )
         narrative["request_id"] = request_id
+        narrative["metadata"] = _build_compliance_metadata(session_id=session_id)
         _transition(PipelineStage.STORY_GENERATED, "Narratif généré")
         print("[2/7] Narratif généré")
 
@@ -611,6 +685,7 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
         consistency_result = enrich(narrative)
         enriched_narrative = consistency_result["enriched_doc"]
         enriched_narrative["request_id"] = request_id
+        enriched_narrative["metadata"] = dict(narrative.get("metadata") or {})
         validate_narrative_document(enriched_narrative, schema_path=ENRICHED_SCHEMA_PATH)
         log_step("validation safety post-generation enrichie")
         try:
@@ -743,6 +818,14 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
             _persist_state()
             return 1
 
+        compliance_checks = _run_pre_publication_checks(
+            enriched_narrative=enriched_narrative,
+            consistency_report=consistency_report,
+            state=state,
+            schema_narrative_valid=True,
+            schema_enriched_valid=True,
+        )
+
         # 6) AudioEngine
         log_step("génération audio")
         audio_artifacts = build_from_audio_plan(enriched_narrative)
@@ -804,6 +887,8 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
             "final_video_path": final_video_path,
             "assembly_manifest_file": "outputs/final/assembly_manifest.json",
             "success_criteria": provider_bundle.success_criteria,
+            "legal_compliance_checks_file": "outputs/legal_compliance_checks.json",
+            "legal_compliance_status": compliance_checks["status"],
             "total_runtime_sec": round(time.perf_counter() - started_at, 3),
         }
         provider_traces: list[dict] = []

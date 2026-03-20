@@ -92,12 +92,17 @@ def test_smoke_pipeline_cli_generates_standard_artifacts(tmp_path: Path) -> None
             "audio_manifest_file",
             "final_video_path",
             "quality",
+            "legal_compliance_checks_file",
+            "legal_compliance_status",
         },
     )
     request_id = str(manifest["request_id"])
 
-    scene = _assert_json_has_keys(scene_path, {"request_id", "input", "output", "provider_trace"})
-    enriched_scene = _assert_json_has_keys(enriched_scene_path, {"request_id", "input", "output", "provider_trace"})
+    scene = _assert_json_has_keys(scene_path, {"request_id", "input", "output", "provider_trace", "metadata"})
+    enriched_scene = _assert_json_has_keys(
+        enriched_scene_path,
+        {"request_id", "input", "output", "provider_trace", "metadata"},
+    )
     consistency_report = _assert_json_list(consistency_report_path)
     shots_manifest = _assert_json_has_keys(shots_manifest_path, {"request_id", "clips", "count", "asset_dependencies"})
     audio_manifest = _assert_json_has_keys(audio_manifest_path, {"request_id", "source_contract", "artifacts", "count"})
@@ -126,6 +131,7 @@ def test_smoke_pipeline_cli_generates_standard_artifacts(tmp_path: Path) -> None
     assert isinstance(shots_manifest["clips"], list) and shots_manifest["clips"], "Aucun clip généré"
     assert shots_manifest["count"] == len(shots_manifest["clips"])
     assert audio_manifest["count"] == len(audio_manifest["artifacts"])
+    assert manifest["legal_compliance_status"] == "ok"
 
     # Garde-fou explicite: ce smoke test doit tourner en mock-only.
     assert manifest["environment"] == "local", (
