@@ -38,7 +38,7 @@ def test_smoke_pipeline_mock_e2e(
     consistency_result = enrich(narrative)
     enriched_narrative = consistency_result["enriched_doc"]
     asset_refs = generate_assets(enriched_narrative)
-    clips = generate_shots(enriched_narrative)
+    clips = generate_shots(enriched_narrative, asset_refs=asset_refs)
     audio_artifacts = build_from_audio_plan(enriched_narrative)
     final_video_path = assemble_video(clips, "outputs/final", audio_artifacts=audio_artifacts)
 
@@ -55,6 +55,7 @@ def test_smoke_pipeline_mock_e2e(
     assert asset_refs
     assert isinstance(clips, list)
     assert clips
+    assert all(clip.get("asset_dependencies") for clip in clips)
     assert isinstance(audio_artifacts, list)
     assert len(audio_artifacts) == 2
 

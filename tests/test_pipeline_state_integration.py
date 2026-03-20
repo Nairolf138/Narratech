@@ -177,3 +177,27 @@ def test_pipeline_state_fails_when_degraded_ratio_over_threshold(
     assert state["failed_stage"] == "shots_generated"
     assert state["degraded_ratio"] > 0.1
     assert state["retry_events"]
+
+
+def test_pipeline_shots_manifest_references_generated_assets(
+    isolated_workdir: Path,
+) -> None:
+    exit_code = _run_pipeline([])
+    assert exit_code == 0
+
+    manifest = _read_json(isolated_workdir / "outputs" / "manifest.json")
+    shots_manifest = _read_json(isolated_workdir / "outputs" / "shots" / "shots_manifest.json")
+    assets_manifest = _read_json(isolated_workdir / "assets" / manifest["request_id"] / "assets_manifest.json")
+
+    expected_asset_ids = [asset["id"] for asset in assets_manifest["assets"]]
+    assert expected_asset_ids
+
+    dependencies_by_shot = {
+        entry["shot_id"]: entry["asset_ids"] for entry in shots_manifest["asset_dependencies"]
+    }
+    assert dependencies_by_shot
+
+    for clip in shots_manifest["clips"]:
+        shot_id = clip["shot_id"]
+        assert clip["asset_dependencies"] == expected_asset_ids
+        assert dependencies_by_shot[shot_id] == expected_asset_ids

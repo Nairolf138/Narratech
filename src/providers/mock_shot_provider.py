@@ -58,9 +58,17 @@ class MockShotProvider(BaseProvider, ShotProviderContract):
         shots = output.get("shots")
         if not isinstance(shots, list):
             raise ProviderInvalidResponse("payload.output.shots doit être une liste")
+        asset_refs = request.payload.get("asset_refs", [])
+        if not isinstance(asset_refs, list):
+            raise ProviderInvalidResponse("payload.asset_refs doit être une liste")
 
         start = time.perf_counter()
         clips: list[dict] = []
+        asset_dependency_ids = [
+            str(asset.get("id"))
+            for asset in asset_refs
+            if isinstance(asset, dict) and asset.get("id") is not None
+        ]
 
         for order, shot in enumerate(shots, start=1):
             if not isinstance(shot, dict):
@@ -76,6 +84,7 @@ class MockShotProvider(BaseProvider, ShotProviderContract):
                     "duration": duration if duration > 0 else 0.0,
                     "description_enriched": desc,
                     "file_name": f"shot_{order:03d}_{shot_id}.txt",
+                    "asset_dependencies": asset_dependency_ids,
                 }
             )
 
@@ -88,6 +97,8 @@ class MockShotProvider(BaseProvider, ShotProviderContract):
                 "provider": "mock_shot_provider",
                 "model": model_name,
                 "trace_id": f"trace_{uuid4().hex[:12]}",
+                "asset_ref_count": len(asset_dependency_ids),
+                "asset_dependency_ids": asset_dependency_ids,
             },
             latency_ms=latency_ms,
             cost_estimate=0.0015,

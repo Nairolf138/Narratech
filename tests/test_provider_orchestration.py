@@ -163,6 +163,7 @@ def test_targeted_shot_retries_fallback_to_placeholder() -> None:
         primary_provider=primary,
         secondary_provider=secondary,
         asset_provider=MockAssetProvider(),
+        asset_refs=[{"id": "asset_character_001"}, {"id": "asset_environment_001"}],
     )
 
     assert len(clips) == 2

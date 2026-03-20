@@ -32,6 +32,7 @@ def test_pipeline_generates_required_manifests(isolated_workdir: Path) -> None:
     assert shots_manifest["request_id"] == manifest["request_id"]
     assert shots_manifest["count"] > 0
     assert len(shots_manifest["clips"]) == shots_manifest["count"]
+    assert len(shots_manifest["asset_dependencies"]) == shots_manifest["count"]
 
 
 def test_pipeline_generates_audio_outputs(isolated_workdir: Path) -> None:
