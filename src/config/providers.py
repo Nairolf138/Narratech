@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.providers import BaseProvider, MockAssetProvider, MockNarrativeProvider, MockShotProvider
+from src.providers import BaseProvider, LocalAssetProvider, MockAssetProvider, MockNarrativeProvider, MockShotProvider
 from src.providers.factory import create_narrative_provider
 from src.providers.narrative.openai_provider import OpenAINarrativeProvider
 from src.providers.picsum_shot_provider import PicsumShotProvider
@@ -34,6 +34,7 @@ class ProviderBundle:
 _PROVIDER_REGISTRY: dict[str, type[BaseProvider]] = {
     "mock_narrative": MockNarrativeProvider,
     "mock_asset": MockAssetProvider,
+    "local_asset": LocalAssetProvider,
     "mock_shot": MockShotProvider,
     "picsum_shot": PicsumShotProvider,
     "openai_narrative": OpenAINarrativeProvider,
