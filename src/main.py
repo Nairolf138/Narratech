@@ -22,6 +22,7 @@ from src.core.io_utils import write_json_utf8
 from src.core.logger import log_step, log_transition
 from src.core.pipeline_state import PipelineRuntimeState, PipelineStage
 from src.core.feedback_engine import FeedbackEngine, load_feedback_input
+from src.core.safety import SafetyBlockError, SafetyGuard
 from src.core.recommendation_engine import RecommendationEngine
 from src.core.schema_validator import (
     ENRICHED_SCHEMA_PATH,
@@ -535,6 +536,7 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
         print("[1/7] Prompt et contexte utilisateur chargés")
 
         feedback_engine = FeedbackEngine()
+        safety_guard = SafetyGuard.from_environment()
         prior_adjustments = feedback_engine.latest_adjustments_for_session(session_id=session_id)
         applied_feedback_adjustments = prior_adjustments.to_dict() if prior_adjustments is not None else None
         if prior_adjustments is not None:
@@ -543,6 +545,17 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
                 + "\n".join(f"- {item}" for item in prior_adjustments.instructions)
             )
             log_step("ajustements de feedback appliqués depuis la session précédente")
+
+        log_step("validation safety pre-generation")
+        try:
+            safety_guard.validate_prompt(prompt=prompt, request_id=request_id, session_id=session_id)
+        except SafetyBlockError as exc:
+            log_step("blocage safety pre-generation")
+            log_transition(state.mark_failed(stage=PipelineStage.PROMPT_LOADED, reason=str(exc)))
+            _persist_state()
+            print(str(exc))
+            print("Pipeline interrompu: blocage safety (pré-génération).")
+            return 1
 
         # Providers injectés via configuration d'environnement (config/providers.<env>.json)
         provider_bundle = load_provider_bundle()
@@ -581,6 +594,16 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
         # Validation schéma juste après génération
         log_step("validation schéma narratif")
         validate_narrative_document(narrative)
+        log_step("validation safety post-generation narrative")
+        try:
+            safety_guard.validate_output(payload=narrative, request_id=request_id, session_id=session_id)
+        except SafetyBlockError as exc:
+            log_step("blocage safety post-generation narrative")
+            log_transition(state.mark_failed(stage=PipelineStage.NARRATIVE_VALIDATED, reason=str(exc)))
+            _persist_state()
+            print(str(exc))
+            print("Pipeline interrompu: blocage safety (post-génération narrative).")
+            return 1
         _transition(PipelineStage.NARRATIVE_VALIDATED, "Schéma narratif valide")
 
         # 3) ConsistencyEngine
@@ -589,6 +612,16 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
         enriched_narrative = consistency_result["enriched_doc"]
         enriched_narrative["request_id"] = request_id
         validate_narrative_document(enriched_narrative, schema_path=ENRICHED_SCHEMA_PATH)
+        log_step("validation safety post-generation enrichie")
+        try:
+            safety_guard.validate_output(payload=enriched_narrative, request_id=request_id, session_id=session_id)
+        except SafetyBlockError as exc:
+            log_step("blocage safety post-generation enrichie")
+            log_transition(state.mark_failed(stage=PipelineStage.CONSISTENCY_ENRICHED, reason=str(exc)))
+            _persist_state()
+            print(str(exc))
+            print("Pipeline interrompu: blocage safety (post-génération enrichie).")
+            return 1
         consistency_report = consistency_result["consistency_report"]
         consistency_report_path = write_json_utf8("outputs/consistency_report.json", consistency_report)
 
@@ -752,6 +785,7 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
             "recommendation_file": recommendation_path.as_posix(),
             "feedback_capture_file": feedback_capture_path.as_posix(),
             "feedback_audit_file": feedback_audit_path.as_posix(),
+            "safety_audit_file": "outputs/safety_audit.json",
             "assets_dir": "assets",
             "asset_refs": [asset.get("uri") for asset in asset_refs if isinstance(asset, dict)],
             "shots_dir": "outputs/shots",
