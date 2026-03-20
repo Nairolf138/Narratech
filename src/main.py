@@ -6,7 +6,10 @@ import re
 import sys
 import time
 import os
+import json
+import argparse
 from pathlib import Path
+from contextlib import contextmanager
 from collections.abc import Mapping
 from typing import Callable, TypeVar
 from uuid import uuid4
@@ -46,6 +49,10 @@ from src.core.provider_benchmark import aggregate_provider_benchmark, update_glo
 
 T = TypeVar("T")
 DEFAULT_DEGRADED_RATIO_THRESHOLD = 0.2
+EXIT_SUCCESS = 0
+EXIT_USAGE_ERROR = 2
+EXIT_VALIDATION_ERROR = 3
+EXIT_PIPELINE_FAILURE = 10
 
 
 def ensure_dirs() -> None:
@@ -84,16 +91,50 @@ def _run_validation_cli(args: list[str]) -> int:
     """Valide un fichier narratif depuis la ligne de commande."""
     if len(args) != 1:
         print("Usage: narratech validate <file>")
-        return 1
+        return EXIT_USAGE_ERROR
 
     target_file = args[0]
     try:
         validate_narrative_file(target_file)
         print(f"Document narratif valide: {target_file}")
-        return 0
+        return EXIT_SUCCESS
     except (OSError, ValueError, NarrativeValidationError) as exc:
         print(f"Document narratif invalide: {exc}")
-        return 1
+        return EXIT_VALIDATION_ERROR
+
+
+def _build_generate_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="narratech generate", add_help=True)
+    parser.add_argument("--prompt", required=True, help="Prompt principal à générer.")
+    parser.add_argument(
+        "--user-profile",
+        required=True,
+        help="Chemin vers le fichier JSON de profil utilisateur.",
+    )
+    parser.add_argument("--language", required=True, help="Langue cible (ex: fr, en, es).")
+    parser.add_argument("--target-duration", required=True, type=int, help="Durée cible en secondes.")
+    parser.add_argument("--output-dir", required=True, help="Répertoire de sortie principal.")
+    return parser
+
+
+def _load_user_profile_from_file(profile_path: str) -> dict:
+    path = Path(profile_path)
+    with path.open("r", encoding="utf-8") as stream:
+        payload = json.load(stream)
+    if not isinstance(payload, dict):
+        raise ValueError("Le profil utilisateur doit être un objet JSON.")
+    return payload
+
+
+@contextmanager
+def _working_directory(path: Path):
+    current_dir = Path.cwd()
+    path.mkdir(parents=True, exist_ok=True)
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(current_dir)
 
 
 def _execute_with_retry_and_fallback(
@@ -461,7 +502,7 @@ def _generate_shots_with_targeted_retries(
     write_json_utf8("outputs/shots/shots_manifest.json", shots_manifest)
     output["clips"] = clips
     return clips, shots_manifest["quality"]
-def _run_pipeline(args: list[str]) -> int:
+def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) -> int:
     """Démarre le pipeline Narratech de bout en bout."""
     ensure_dirs()
     request_id = f"req_{uuid4().hex}"
@@ -484,10 +525,14 @@ def _run_pipeline(args: list[str]) -> int:
         log_step("chargement prompt")
         prompt = load_prompt(args)
         session_id = os.getenv("NARRATECH_SESSION_ID", "session_default")
-        user_profile = build_user_context({"identity": {"session_id": session_id}})
+        profile_seed = dict(user_profile_payload or {})
+        identity = profile_seed.get("identity") if isinstance(profile_seed.get("identity"), dict) else {}
+        profile_seed["identity"] = {**identity, "session_id": session_id}
+        user_profile = build_user_context(profile_seed)
         prompt_path = Path("outputs/prompt.txt")
         prompt_path.write_text(prompt + "\n", encoding="utf-8")
         _transition(PipelineStage.PROMPT_LOADED, "Prompt chargé avec succès")
+        print("[1/7] Prompt et contexte utilisateur chargés")
 
         feedback_engine = FeedbackEngine()
         prior_adjustments = feedback_engine.latest_adjustments_for_session(session_id=session_id)
@@ -531,6 +576,7 @@ def _run_pipeline(args: list[str]) -> int:
         )
         narrative["request_id"] = request_id
         _transition(PipelineStage.STORY_GENERATED, "Narratif généré")
+        print("[2/7] Narratif généré")
 
         # Validation schéma juste après génération
         log_step("validation schéma narratif")
@@ -609,6 +655,7 @@ def _run_pipeline(args: list[str]) -> int:
         )
 
         _transition(PipelineStage.CONSISTENCY_ENRICHED, "Cohérence enrichie, rapport et recommandations générés")
+        print("[3/7] Cohérence validée et enrichie")
 
         if has_blocking_violations(consistency_report):
             log_step("échec cohérence bloquante")
@@ -634,6 +681,7 @@ def _run_pipeline(args: list[str]) -> int:
             retries=1,
         )
         _transition(PipelineStage.ASSETS_GENERATED, "Assets générés")
+        print("[4/7] Assets générés")
 
         # 5) ShotGenerator (retries ciblés shot > asset > scène + fallback ordonné)
         log_step("génération shots")
@@ -651,6 +699,7 @@ def _run_pipeline(args: list[str]) -> int:
             degraded_shots=int(quality_metrics["degraded_shots"]),
         )
         _transition(PipelineStage.SHOTS_GENERATED, "Shots générés")
+        print("[5/7] Shots générés")
 
         degraded_ratio_threshold = _get_degraded_ratio_threshold()
         if state.degraded_ratio > degraded_ratio_threshold:
@@ -664,11 +713,13 @@ def _run_pipeline(args: list[str]) -> int:
         # 6) AudioEngine
         log_step("génération audio")
         audio_artifacts = build_from_audio_plan(enriched_narrative)
+        print("[6/7] Audio généré")
 
         # 7) VideoAssembler
         log_step("assemblage final")
         final_video_path = assemble_video(clips, "outputs/final", audio_artifacts=audio_artifacts)
         _transition(PipelineStage.FINAL_ASSEMBLED, "Assemblage final terminé")
+        print("[7/7] Assemblage final terminé")
 
         # Passage explicite des artefacts entre modules.
         pipeline_artifacts: dict[str, dict | list | str] = {
@@ -766,12 +817,45 @@ def _run_pipeline(args: list[str]) -> int:
         else:
             _transition(PipelineStage.COMPLETED, "Pipeline terminé avec succès")
         log_step("fin")
+        print("Résumé final:")
+        print(f"- final_video_path: {final_video_path}")
+        print("- manifest_file: outputs/manifest.json")
+        print(f"- shots_total: {state.total_shots}")
+        print(f"- shots_degraded: {state.degraded_shots}")
+        print(f"- runtime_sec: {manifest['total_runtime_sec']}")
         print(f"Fichier final généré: {final_video_path}")
-        return 0
+        return EXIT_SUCCESS
     except Exception as exc:
         log_transition(state.mark_failed(stage=state.current_stage, reason=str(exc)))
         _persist_state()
         raise
+
+
+def _run_generate_cli(args: list[str]) -> int:
+    parser = _build_generate_parser()
+    try:
+        parsed = parser.parse_args(args)
+    except SystemExit:
+        return EXIT_USAGE_ERROR
+
+    try:
+        profile_payload = _load_user_profile_from_file(parsed.user_profile)
+        profile_payload["preferences"] = (
+            dict(profile_payload.get("preferences"))
+            if isinstance(profile_payload.get("preferences"), dict)
+            else {}
+        )
+        profile_payload["preferences"]["language"] = parsed.language
+        profile_payload["preferences"]["duration_sec"] = parsed.target_duration
+        output_dir = Path(parsed.output_dir).resolve()
+        with _working_directory(output_dir):
+            return _run_pipeline([parsed.prompt], user_profile_payload=profile_payload)
+    except (OSError, ValueError, json.JSONDecodeError, NarrativeValidationError) as exc:
+        print(f"Erreur de configuration generate: {exc}")
+        return EXIT_VALIDATION_ERROR
+    except Exception as exc:
+        print(f"Erreur execution generate: {exc}")
+        return EXIT_PIPELINE_FAILURE
 
 
 def main() -> int:
@@ -781,12 +865,14 @@ def main() -> int:
     try:
         if args and args[0] == "validate":
             return _run_validation_cli(args[1:])
+        if args and args[0] == "generate":
+            return _run_generate_cli(args[1:])
         return _run_pipeline(args)
 
     except Exception as exc:  # gestion d'erreur globale minimale
         log_step("échec pipeline")
         print(f"Erreur pipeline: {exc}")
-        return 1
+        return EXIT_PIPELINE_FAILURE
 
 
 if __name__ == "__main__":
