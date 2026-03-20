@@ -42,7 +42,7 @@ def test_pipeline_generates_audio_outputs(isolated_workdir: Path) -> None:
     audio_manifest_path = isolated_workdir / "outputs" / "audio" / "audio_manifest.json"
     voice_path = isolated_workdir / "outputs" / "audio" / "voiceover.txt"
     ambience_path = isolated_workdir / "outputs" / "audio" / "ambience.txt"
-    final_video_path = isolated_workdir / "outputs" / "final" / "final_video.txt"
+    final_video_path = isolated_workdir / "outputs" / "final" / "final_video.mp4"
 
     assert audio_manifest_path.exists()
     assert voice_path.exists()
@@ -53,10 +53,14 @@ def test_pipeline_generates_audio_outputs(isolated_workdir: Path) -> None:
     assert audio_manifest["count"] == 2
     assert len(audio_manifest["artifacts"]) == 2
 
-    final_video_content = final_video_path.read_text(encoding="utf-8")
-    assert "audio_tracks:" in final_video_content
-    assert "voiceover.txt" in final_video_content
-    assert "ambience.txt" in final_video_content
+    final_video_content = final_video_path.read_bytes()
+    assert b"NARRATECH_POSTPROD_PLACEHOLDER" in final_video_content
+
+    assembly_manifest_path = isolated_workdir / "outputs" / "final" / "assembly_manifest.json"
+    assert assembly_manifest_path.exists()
+    assembly_manifest = _read_json(assembly_manifest_path)
+    assert assembly_manifest["video"]["concat_strategy"] == "narrative_order"
+    assert assembly_manifest["audio"]["mix"]["ambience"]["ducking"]["enabled"] is True
 
 
 def test_pipeline_fails_if_shots_manifest_missing(

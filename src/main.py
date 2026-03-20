@@ -568,6 +568,7 @@ def _run_pipeline(args: list[str]) -> int:
             "clips": clips,
             "audio_artifacts": audio_artifacts,
             "final_video_path": final_video_path,
+            "assembly_manifest_file": "outputs/final/assembly_manifest.json",
             "consistency_report": consistency_report,
             "provider_bundle": provider_bundle,
         }
@@ -602,6 +603,7 @@ def _run_pipeline(args: list[str]) -> int:
             "audio_files": [artifact.get("path") for artifact in audio_artifacts if isinstance(artifact, dict)],
             "final_dir": "outputs/final",
             "final_video_path": final_video_path,
+            "assembly_manifest_file": "outputs/final/assembly_manifest.json",
             "success_criteria": provider_bundle.success_criteria,
             "total_runtime_sec": round(time.perf_counter() - started_at, 3),
         }

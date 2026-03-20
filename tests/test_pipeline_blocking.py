@@ -89,4 +89,4 @@ def test_pipeline_continues_on_non_blocking_consistency_issues(
 
     assert exit_code == 0
     assert (isolated_workdir / "outputs" / "consistency_report.json").exists()
-    assert (isolated_workdir / "outputs" / "final" / "final_video.txt").exists()
+    assert (isolated_workdir / "outputs" / "final" / "final_video.mp4").exists()

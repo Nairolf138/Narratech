@@ -111,7 +111,10 @@ def test_smoke_pipeline_cli_generates_standard_artifacts(tmp_path: Path) -> None
 
     final_video_path = output_root / str(manifest["final_video_path"])
     assert final_video_path.exists(), f"Artefact final manquant: {final_video_path.as_posix()}"
-    assert final_video_path.read_text(encoding="utf-8").strip(), "Le fichier vidéo final est vide"
+    assert final_video_path.read_bytes(), "Le fichier vidéo final est vide"
+
+    assembly_manifest_path = output_root / "outputs" / "final" / "assembly_manifest.json"
+    _assert_json_has_keys(assembly_manifest_path, {"format", "video", "audio", "export"})
 
     assert scene["request_id"] == request_id
     assert enriched_scene["request_id"] == request_id
