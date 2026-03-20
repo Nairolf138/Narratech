@@ -9,6 +9,7 @@ from uuid import uuid4
 from src.providers.adapter import call_with_normalized_errors
 from src.providers.base import BaseProvider, ProviderHealth, ProviderInvalidResponse, ProviderRequest, ProviderResponse
 from src.providers.contracts import ShotProviderContract
+from src.providers.trace import build_provider_trace
 
 
 class PicsumShotProvider(BaseProvider, ShotProviderContract):
@@ -78,17 +79,23 @@ class PicsumShotProvider(BaseProvider, ShotProviderContract):
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         model_name = "picsum-shot-v1"
+        cost_estimate = 0.0
         return ProviderResponse(
             data={"clips": clips},
-            provider_trace={
-                "stage": "shot_generation",
-                "provider": "picsum_shot_provider",
-                "model": model_name,
-                "trace_id": f"trace_{uuid4().hex[:12]}",
-                "mode": "semi_real",
-            },
+            provider_trace=build_provider_trace(
+                provider="picsum_shot_provider",
+                model=model_name,
+                latency_ms=latency_ms,
+                cost_estimate=cost_estimate,
+                retries=0,
+                status="success",
+                error=None,
+                stage="shot_generation",
+                trace_id=f"trace_{uuid4().hex[:12]}",
+                mode="semi_real",
+            ),
             latency_ms=latency_ms,
-            cost_estimate=0.0,
+            cost_estimate=cost_estimate,
             model_name=model_name,
         )
 

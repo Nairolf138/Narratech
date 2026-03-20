@@ -10,6 +10,7 @@ from src.providers.adapter import call_with_normalized_errors
 from src.providers.base import BaseProvider, ProviderHealth, ProviderInvalidResponse, ProviderRequest, ProviderResponse, ProviderTimeout
 from src.providers.contracts import ShotProviderContract
 from src.core.user_context import build_user_context
+from src.providers.trace import build_provider_trace
 from src.providers.video_render_adapters import (
     KlingVideoRenderAdapter,
     LocalVideoRenderAdapter,
@@ -223,30 +224,37 @@ class AsyncShotProvider(BaseProvider, ShotProviderContract):
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         model_name = f"{backend}-video-render-v1"
+        total_retries = max(0, len(attempts_trace) - len(clips))
+        cost_estimate = 0.02 * len(clips)
         return ProviderResponse(
             data={"clips": clips},
-            provider_trace={
-                "stage": "shot_generation",
-                "provider": "async_shot_provider",
-                "backend": backend,
-                "model": model_name,
-                "trace_id": f"trace_{uuid4().hex[:12]}",
-                "clip_count": len(clips),
-                "render_attempts": attempts_trace,
-                "retry_policy": {
+            provider_trace=build_provider_trace(
+                provider="async_shot_provider",
+                model=model_name,
+                latency_ms=latency_ms,
+                cost_estimate=cost_estimate,
+                retries=total_retries,
+                status="success",
+                error=None,
+                stage="shot_generation",
+                backend=backend,
+                trace_id=f"trace_{uuid4().hex[:12]}",
+                clip_count=len(clips),
+                render_attempts=attempts_trace,
+                retry_policy={
                     "attempt_timeout_sec": render_attempt_timeout_sec,
                     "max_attempts": max_render_attempts,
                     "progressive_backoff_base_sec": retry_backoff_base_sec,
                 },
-                "personalization_applied": {
+                personalization_applied={
                     "language": user_profile["preferences"]["language"],
                     "rhythm": user_profile["preferences"]["rhythm"],
                     "age_rating": user_profile["constraints"]["age_rating"],
                     "exclusions": user_profile["constraints"]["exclusions"],
                 },
-            },
+            ),
             latency_ms=latency_ms,
-            cost_estimate=0.02 * len(clips),
+            cost_estimate=cost_estimate,
             model_name=model_name,
         )
 

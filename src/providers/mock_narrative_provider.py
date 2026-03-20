@@ -19,6 +19,7 @@ from src.providers.base import (
     ProviderTimeout,
 )
 from src.providers.contracts import NarrativeProviderContract
+from src.providers.trace import build_provider_trace
 
 
 class MockNarrativeProvider(BaseProvider, NarrativeProviderContract):
@@ -136,12 +137,17 @@ class MockNarrativeProvider(BaseProvider, NarrativeProviderContract):
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         model_name = "mock-narrative-v1"
-        trace = {
-            "stage": "story_generation",
-            "provider": "mock_narrative_provider",
-            "model": model_name,
-            "trace_id": f"trace_{uuid4().hex[:12]}",
-        }
+        trace = build_provider_trace(
+            provider="mock_narrative_provider",
+            model=model_name,
+            latency_ms=latency_ms,
+            cost_estimate=0.002,
+            retries=0,
+            status="success",
+            error=None,
+            stage="story_generation",
+            trace_id=f"trace_{uuid4().hex[:12]}",
+        )
         return ProviderResponse(
             data=data,
             provider_trace=trace,

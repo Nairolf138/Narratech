@@ -180,13 +180,29 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["stage", "provider", "model", "trace_id"],
+        "required": [
+          "stage",
+          "provider",
+          "model",
+          "modele",
+          "trace_id",
+          "latency_ms",
+          "cost_estimate",
+          "retries",
+          "status",
+          "error"
+        ],
         "properties": {
           "stage": { "type": "string", "minLength": 1 },
           "provider": { "type": "string", "minLength": 1 },
           "model": { "type": "string", "minLength": 1 },
+          "modele": { "type": "string", "minLength": 1 },
           "trace_id": { "type": "string", "minLength": 1 },
           "latency_ms": { "type": "integer", "minimum": 0 },
+          "cost_estimate": { "type": "number", "minimum": 0 },
+          "retries": { "type": "integer", "minimum": 0 },
+          "status": { "type": "string", "minLength": 1 },
+          "error": { "type": "string" },
           "fallback_mode": { "type": "boolean" },
           "fallback_reason": { "type": "string", "minLength": 1 }
         }

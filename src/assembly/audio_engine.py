@@ -100,6 +100,10 @@ def build_from_audio_plan(scene_doc: dict) -> list[dict]:
             "description": str(voiceover.get("script") or ""),
             "metadata": voice_response.data["metadata"],
             "timestamps": voice_response.data["timestamps"],
+            "provider_trace": voice_response.provider_trace,
+            "latency_ms": voice_response.latency_ms,
+            "cost_estimate": voice_response.cost_estimate,
+            "model_name": voice_response.model_name,
         },
         {
             "kind": "ambience",
@@ -108,6 +112,10 @@ def build_from_audio_plan(scene_doc: dict) -> list[dict]:
             "description": str(ambience.get("description") or ""),
             "metadata": ambience_response.data["metadata"],
             "timestamps": ambience_response.data["timestamps"],
+            "provider_trace": ambience_response.provider_trace,
+            "latency_ms": ambience_response.latency_ms,
+            "cost_estimate": ambience_response.cost_estimate,
+            "model_name": ambience_response.model_name,
         },
     ]
 

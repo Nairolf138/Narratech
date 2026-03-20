@@ -18,6 +18,7 @@ from src.providers.base import (
     ProviderTimeout,
 )
 from src.providers.contracts import ShotProviderContract
+from src.providers.trace import build_provider_trace
 
 
 class MockShotProvider(BaseProvider, ShotProviderContract):
@@ -90,18 +91,24 @@ class MockShotProvider(BaseProvider, ShotProviderContract):
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         model_name = "mock-shot-v1"
+        cost_estimate = 0.0015
         return ProviderResponse(
             data={"clips": clips},
-            provider_trace={
-                "stage": "shot_generation",
-                "provider": "mock_shot_provider",
-                "model": model_name,
-                "trace_id": f"trace_{uuid4().hex[:12]}",
-                "asset_ref_count": len(asset_dependency_ids),
-                "asset_dependency_ids": asset_dependency_ids,
-            },
+            provider_trace=build_provider_trace(
+                provider="mock_shot_provider",
+                model=model_name,
+                latency_ms=latency_ms,
+                cost_estimate=cost_estimate,
+                retries=0,
+                status="success",
+                error=None,
+                stage="shot_generation",
+                trace_id=f"trace_{uuid4().hex[:12]}",
+                asset_ref_count=len(asset_dependency_ids),
+                asset_dependency_ids=asset_dependency_ids,
+            ),
             latency_ms=latency_ms,
-            cost_estimate=0.0015,
+            cost_estimate=cost_estimate,
             model_name=model_name,
         )
 

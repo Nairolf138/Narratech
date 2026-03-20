@@ -26,6 +26,7 @@ from src.providers.base import (
     ProviderTimeout,
 )
 from src.providers.contracts import NarrativeProviderContract
+from src.providers.trace import build_provider_trace
 
 TransportFn = Callable[[dict[str, Any], float, str, str], dict[str, Any]]
 
@@ -119,31 +120,40 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
             try:
                 document = self._parse_and_validate_document(raw_text)
                 latency_ms = int((time.perf_counter() - start) * 1000)
-                trace_entry = {
-                    "stage": "story_generation",
-                    "provider": "openai_narrative_provider",
-                    "model": model_name,
-                    "trace_id": f"trace_{uuid4().hex[:12]}",
-                    "latency_ms": latency_ms,
-                }
+                trace_id = f"trace_{uuid4().hex[:12]}"
+                trace_entry = build_provider_trace(
+                    provider="openai_narrative_provider",
+                    model=model_name,
+                    latency_ms=latency_ms,
+                    cost_estimate=0.0,
+                    retries=attempt,
+                    status="success",
+                    error=None,
+                    stage="story_generation",
+                    trace_id=trace_id,
+                )
                 document["provider_trace"] = [trace_entry]
 
-                provider_trace = {
-                    "stage": "story_generation",
-                    "provider": "openai_narrative_provider",
-                    "model": model_name,
-                    "trace_id": trace_entry["trace_id"],
-                    "latency_ms": latency_ms,
-                    "usage": usage,
-                    "attempts": attempt + 1,
-                    "personalization_applied": {
+                provider_trace = build_provider_trace(
+                    provider="openai_narrative_provider",
+                    model=model_name,
+                    latency_ms=latency_ms,
+                    cost_estimate=0.0,
+                    retries=attempt,
+                    status="success",
+                    error=None,
+                    stage="story_generation",
+                    trace_id=trace_id,
+                    usage=usage,
+                    attempts=attempt + 1,
+                    personalization_applied={
                         "language": language,
                         "genre": style,
                         "age_rating": constraints.get("age_rating"),
                         "culture": constraints.get("culture"),
                         "exclusions": list(constraints.get("exclusions") or []),
                     },
-                }
+                )
                 if bool(self._config.get("include_prompt_in_trace", True)):
                     provider_trace["prompt"] = {
                         "system": system_prompt,
@@ -262,6 +272,37 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
         document = json.loads(normalized)
         if not isinstance(document, dict):
             raise ProviderInvalidResponse("Le provider doit renvoyer un objet JSON racine.")
+
+        provider_trace = document.get("provider_trace")
+        if isinstance(provider_trace, list):
+            normalized_traces: list[dict[str, Any]] = []
+            for item in provider_trace:
+                if not isinstance(item, dict):
+                    continue
+                extras: dict[str, Any] = {
+                    "stage": str(item.get("stage") or "story_generation"),
+                    "trace_id": str(item.get("trace_id") or f"trace_{uuid4().hex[:12]}"),
+                }
+                if isinstance(item.get("fallback_mode"), bool):
+                    extras["fallback_mode"] = item["fallback_mode"]
+                fallback_reason = item.get("fallback_reason")
+                if isinstance(fallback_reason, str) and fallback_reason.strip():
+                    extras["fallback_reason"] = fallback_reason
+
+                normalized_traces.append(
+                    build_provider_trace(
+                        provider=str(item.get("provider") or "openai_narrative_provider"),
+                        model=str(item.get("model") or self._config.get("model") or "unknown"),
+                        latency_ms=int(item.get("latency_ms") or 0),
+                        cost_estimate=float(item.get("cost_estimate") or 0.0),
+                        retries=int(item.get("retries") or 0),
+                        status=str(item.get("status") or "success"),
+                        error=str(item.get("error") or ""),
+                        **extras,
+                    )
+                )
+            if normalized_traces:
+                document["provider_trace"] = normalized_traces
 
         validate_narrative_document(document)
         return document
