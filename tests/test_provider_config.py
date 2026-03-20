@@ -15,6 +15,7 @@ def test_load_provider_bundle_local_uses_mock_vertical() -> None:
     assert bundle.environment == "local"
     assert bundle.vertical == "local_mock_full"
     assert isinstance(bundle.shot.primary, MockShotProvider)
+    assert bundle.story.fallback_policy.get("enabled") is True
 
 
 def test_load_provider_bundle_demo_uses_single_demo_vertical() -> None:

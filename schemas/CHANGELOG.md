@@ -1,5 +1,16 @@
 # Schema Changelog
 
+## [narrative.v1 / narrative.enriched.v1] - 2026-03-20
+
+### Added
+- Optional fallback tracing fields in `provider_trace[*]`:
+  - `fallback_mode` (boolean)
+  - `fallback_reason` (string)
+
+### Notes
+- These fields remain optional to preserve compatibility with existing providers.
+- They enable explicit cloud→local fallback observability while staying schema-compliant.
+
 ## [narrative.enriched.v1] - 2026-03-19
 
 ### Added

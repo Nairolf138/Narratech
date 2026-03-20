@@ -357,6 +357,13 @@
           "latency_ms": {
             "type": "integer",
             "minimum": 0
+          },
+          "fallback_mode": {
+            "type": "boolean"
+          },
+          "fallback_reason": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }

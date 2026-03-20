@@ -18,6 +18,7 @@ from src.providers.picsum_shot_provider import PicsumShotProvider
 class ProviderSlot:
     primary: BaseProvider
     fallback: BaseProvider
+    fallback_policy: dict[str, Any]
 
 
 @dataclass(slots=True)
@@ -75,14 +76,29 @@ def load_provider_bundle(environment: str | None = None, config_dir: str = "conf
         story=ProviderSlot(
             primary=create_narrative_provider(story_config.get("primary", {})),
             fallback=create_narrative_provider(story_config.get("fallback", {})),
+            fallback_policy=(
+                story_config.get("fallback_policy")
+                if isinstance(story_config.get("fallback_policy"), dict)
+                else {}
+            ),
         ),
         asset=ProviderSlot(
             primary=_build_provider(asset_config.get("primary", {}), "mock_asset"),
             fallback=_build_provider(asset_config.get("fallback", {}), "mock_asset"),
+            fallback_policy=(
+                asset_config.get("fallback_policy")
+                if isinstance(asset_config.get("fallback_policy"), dict)
+                else {}
+            ),
         ),
         shot=ProviderSlot(
             primary=_build_provider(shot_config.get("primary", {}), "mock_shot"),
             fallback=_build_provider(shot_config.get("fallback", {}), "mock_shot"),
+            fallback_policy=(
+                shot_config.get("fallback_policy")
+                if isinstance(shot_config.get("fallback_policy"), dict)
+                else {}
+            ),
         ),
         success_criteria=payload.get("success_criteria", {}) if isinstance(payload, dict) else {},
     )

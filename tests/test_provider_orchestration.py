@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from src.core.pipeline_state import PipelineRuntimeState, PipelineStage
+from src.core.story_engine import StoryEngine
 from src.main import _execute_with_retry_and_fallback, _generate_shots_with_targeted_retries
 from src.providers import (
     AssetProviderContract,
@@ -18,6 +19,8 @@ from src.providers import (
     ProviderTimeout,
     ShotProviderContract,
 )
+from src.core.schema_validator import validate_narrative_document
+from src.providers.narrative.openai_provider import OpenAINarrativeProvider
 from src.providers.adapter import call_with_normalized_errors
 
 
@@ -112,6 +115,61 @@ def test_execute_with_retry_uses_fallback_after_rate_limit() -> None:
 
     assert response.provider_trace.get("provider") == "mock_asset_provider"
     assert response.data.get("assets") is not None
+    assert response.provider_trace.get("fallback_mode") is True
+    assert response.provider_trace.get("fallback_reason") == "ProviderRateLimit"
+
+
+def test_execute_with_retry_applies_configurable_fallback_policy() -> None:
+    provider = MockAssetProvider()
+    provider.configure({"failure_sequence": ["timeout"]})
+
+    fallback = MockAssetProvider()
+    fallback.configure({"failure_sequence": ["ok"]})
+
+    with pytest.raises(ProviderTimeout):
+        _execute_with_retry_and_fallback(
+            action=lambda active: active.generate(
+                request=ProviderRequest(
+                    request_id="req_policy_1",
+                    payload={"output": {"characters": [], "scenes": []}},
+                    timeout_sec=1.0,
+                )
+            ),
+            provider=provider,
+            state=PipelineRuntimeState(request_id="req_policy_1"),
+            stage=PipelineStage.ASSETS_GENERATED,
+            fallback_provider=fallback,
+            fallback_policy={"enabled": True, "trigger_on": ["ProviderRateLimit"]},
+            retries=0,
+        )
+
+
+def test_execute_with_retry_cloud_to_local_fallback_respects_narrative_schema() -> None:
+    primary = OpenAINarrativeProvider(
+        transport=lambda *_args: (_ for _ in ()).throw(ProviderRateLimit("cloud quota exceeded"))
+    )
+    primary.configure({"api_key": "test-key", "retry_max_attempts": 0})
+    fallback = MockNarrativeProvider()
+
+    response = _execute_with_retry_and_fallback(
+        action=lambda active: StoryEngine(provider=active).generate(
+            prompt="Une histoire concise",
+            request_id="req_story_fallback",
+        ),
+        provider=primary,
+        state=PipelineRuntimeState(request_id="req_story_fallback"),
+        stage=PipelineStage.STORY_GENERATED,
+        fallback_provider=fallback,
+        fallback_policy={"enabled": True, "trigger_on": ["ProviderRateLimit"]},
+        response_validator=validate_narrative_document,
+        retries=0,
+    )
+
+    validate_narrative_document(response)
+    trace = response.get("provider_trace")
+    assert isinstance(trace, list) and trace
+    assert trace[-1].get("fallback_mode") is True
+    assert trace[-1].get("fallback_reason") == "ProviderRateLimit"
 
 
 def test_execute_with_retry_raises_when_no_fallback() -> None:

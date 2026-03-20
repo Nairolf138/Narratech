@@ -6,6 +6,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Callable, TypeVar
 from uuid import uuid4
 
@@ -93,24 +94,64 @@ def _execute_with_retry_and_fallback(
     state: PipelineRuntimeState,
     stage: PipelineStage,
     fallback_provider: BaseProvider | None = None,
+    fallback_policy: Mapping[str, object] | None = None,
+    response_validator: Callable[[T], None] | None = None,
     retries: int = 1,
 ) -> T:
     """Exécute une action provider avec retry sur erreurs transitoires + fallback."""
     last_error: Exception | None = None
+    policy = dict(fallback_policy or {})
+    fallback_enabled = bool(policy.get("enabled", True))
+    trigger_on_raw = policy.get("trigger_on") or ["ProviderTimeout", "ProviderRateLimit"]
+    trigger_on = {
+        str(item) for item in trigger_on_raw if isinstance(item, str)
+    } if isinstance(trigger_on_raw, list) else {"ProviderTimeout", "ProviderRateLimit"}
+    activate_after_attempt = max(1, int(policy.get("activate_after_attempt", retries + 1)))
+
+    def _validate_response(result: T) -> T:
+        if response_validator is not None:
+            response_validator(result)
+        return result
+
+    def _annotate_fallback_trace(result: T, cause: Exception) -> T:
+        reason = type(cause).__name__
+        if hasattr(result, "provider_trace") and isinstance(getattr(result, "provider_trace"), dict):
+            trace = dict(getattr(result, "provider_trace"))
+            trace["fallback_mode"] = True
+            trace["fallback_reason"] = reason
+            setattr(result, "provider_trace", trace)
+            return result
+        if isinstance(result, dict):
+            provider_trace = result.get("provider_trace")
+            if isinstance(provider_trace, list) and provider_trace and isinstance(provider_trace[-1], dict):
+                provider_trace[-1]["fallback_mode"] = True
+                provider_trace[-1]["fallback_reason"] = reason
+            elif isinstance(provider_trace, dict):
+                provider_trace["fallback_mode"] = True
+                provider_trace["fallback_reason"] = reason
+        return result
 
     for attempt in range(retries + 1):
         try:
-            return action(provider)
-        except (ProviderTimeout, ProviderRateLimit) as exc:
+            return _validate_response(action(provider))
+        except ProviderError as exc:
             last_error = exc
-            if attempt < retries:
+            is_transient = isinstance(exc, (ProviderTimeout, ProviderRateLimit))
+            if is_transient and attempt < retries:
                 state.register_retry(stage=stage, reason=str(exc))
                 time.sleep(0.01)
                 continue
             break
 
-    if fallback_provider is not None:
-        return action(fallback_provider)
+    if (
+        fallback_provider is not None
+        and fallback_enabled
+        and last_error is not None
+        and type(last_error).__name__ in trigger_on
+        and (retries + 1) >= activate_after_attempt
+    ):
+        fallback_result = _validate_response(action(fallback_provider))
+        return _annotate_fallback_trace(fallback_result, cause=last_error)
 
     if last_error is not None:
         raise last_error
@@ -423,8 +464,10 @@ def _run_pipeline(args: list[str]) -> int:
         provider_bundle = load_provider_bundle()
         story_provider = provider_bundle.story.primary
         story_fallback_provider = provider_bundle.story.fallback
+        story_fallback_policy = provider_bundle.story.fallback_policy
         asset_provider = provider_bundle.asset.primary
         asset_fallback_provider = provider_bundle.asset.fallback
+        asset_fallback_policy = provider_bundle.asset.fallback_policy
         shot_provider = provider_bundle.shot.primary
         shot_fallback_provider = provider_bundle.shot.fallback
 
@@ -436,6 +479,8 @@ def _run_pipeline(args: list[str]) -> int:
             state=state,
             stage=PipelineStage.STORY_GENERATED,
             fallback_provider=story_fallback_provider,
+            fallback_policy=story_fallback_policy,
+            response_validator=lambda result: validate_narrative_document(result),
             retries=1,
         )
         narrative["request_id"] = request_id
@@ -472,6 +517,7 @@ def _run_pipeline(args: list[str]) -> int:
             state=state,
             stage=PipelineStage.ASSETS_GENERATED,
             fallback_provider=asset_fallback_provider,
+            fallback_policy=asset_fallback_policy,
             retries=1,
         )
         _transition(PipelineStage.ASSETS_GENERATED, "Assets générés")
