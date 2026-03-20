@@ -25,6 +25,9 @@ class AsyncShotProvider(BaseProvider, ShotProviderContract):
             "backend": "local",
             "poll_interval_sec": 0.01,
             "max_poll_attempts": 10,
+            "render_attempt_timeout_sec": 90.0,
+            "max_render_attempts": 3,
+            "retry_backoff_base_sec": 0.5,
             "prompt_template": (
                 "Create cinematic shot for '{shot_id}': {description}. "
                 "Duration={duration_sec}s. Style={style}. Assets={asset_hints}."
@@ -102,8 +105,12 @@ class AsyncShotProvider(BaseProvider, ShotProviderContract):
         start = time.perf_counter()
         poll_interval_sec = float(self._config.get("poll_interval_sec") or 0.01)
         max_poll_attempts = int(self._config.get("max_poll_attempts") or 10)
+        render_attempt_timeout_sec = float(self._config.get("render_attempt_timeout_sec") or 90.0)
+        max_render_attempts = int(self._config.get("max_render_attempts") or 3)
+        retry_backoff_base_sec = float(self._config.get("retry_backoff_base_sec") or 0.5)
 
         clips: list[dict[str, object]] = []
+        attempts_trace: list[dict[str, object]] = []
         backend = str(self._config.get("backend") or "local")
 
         for order, shot in enumerate(shots_manifest, start=1):
@@ -111,25 +118,74 @@ class AsyncShotProvider(BaseProvider, ShotProviderContract):
             duration = float(shot.get("duration_sec") or shot.get("duration") or 0.0)
             prompt = self._map_prompt(shot, order, asset_ids)
 
-            submission = self._adapter.submit_render(
-                prompt=prompt,
-                shot_id=shot_id,
-                duration_sec=duration,
-                request_id=request.request_id,
-            )
-
             final_status = None
-            for _ in range(max_poll_attempts):
-                status = self._adapter.get_render_status(submission.job_id)
-                if status.status == "completed":
-                    final_status = status
-                    break
-                if status.status == "failed":
-                    raise ProviderInvalidResponse(f"Rendu échoué pour shot '{shot_id}'")
-                time.sleep(poll_interval_sec)
+            submission = None
+            last_error: Exception | None = None
+            for attempt_idx in range(1, max_render_attempts + 1):
+                attempt_start = time.perf_counter()
+                attempt_trace: dict[str, object] = {
+                    "shot_id": shot_id,
+                    "attempt": attempt_idx,
+                    "attempt_timeout_sec": render_attempt_timeout_sec,
+                }
+                try:
+                    submission = self._adapter.submit_render(
+                        prompt=prompt,
+                        shot_id=shot_id,
+                        duration_sec=duration,
+                        request_id=request.request_id,
+                    )
+                    attempt_trace["provider_job_id"] = submission.job_id
+                    attempt_trace["provider_job_ref"] = submission.provider_job_ref
 
-            if final_status is None:
-                raise ProviderTimeout(f"Timeout polling rendu shot '{shot_id}'")
+                    poll_count = 0
+                    while poll_count < max_poll_attempts:
+                        elapsed_sec = time.perf_counter() - attempt_start
+                        if elapsed_sec > render_attempt_timeout_sec:
+                            raise ProviderTimeout(
+                                f"Timeout tentative rendu shot '{shot_id}' après {render_attempt_timeout_sec:.1f}s"
+                            )
+
+                        poll_count += 1
+                        status = self._adapter.get_render_status(submission.job_id)
+                        if status.status == "completed":
+                            final_status = status
+                            attempt_trace["poll_count"] = poll_count
+                            attempt_trace["status"] = "completed"
+                            attempts_trace.append(attempt_trace)
+                            break
+                        if status.status == "failed":
+                            reason = str((status.technical_metadata or {}).get("reason") or "unknown")
+                            if reason in {"throttled", "temporary_unavailable", "network", "timeout"}:
+                                raise ProviderTimeout(f"Erreur transitoire provider pour shot '{shot_id}' (reason={reason})")
+                            raise ProviderInvalidResponse(
+                                f"Rendu échoué pour shot '{shot_id}' (reason={reason})"
+                            )
+                        time.sleep(poll_interval_sec)
+
+                    if final_status is not None:
+                        break
+                    raise ProviderTimeout(f"Timeout polling rendu shot '{shot_id}'")
+                except Exception as exc:  # normalisé par call_with_normalized_errors
+                    last_error = exc
+                    recoverable = isinstance(exc, ProviderTimeout)
+                    attempt_trace["status"] = "failed"
+                    attempt_trace["error_type"] = type(exc).__name__
+                    attempt_trace["error_message"] = str(exc)
+                    attempt_trace["recoverable"] = recoverable
+                    attempts_trace.append(attempt_trace)
+
+                    if not recoverable or attempt_idx >= max_render_attempts:
+                        raise
+
+                    backoff_sec = retry_backoff_base_sec * attempt_idx
+                    attempt_trace["backoff_sec"] = backoff_sec
+                    time.sleep(backoff_sec)
+
+            if final_status is None or submission is None:
+                if last_error is not None:
+                    raise last_error
+                raise ProviderTimeout(f"Impossible de produire le rendu pour shot '{shot_id}'")
 
             metadata = dict(final_status.technical_metadata or {})
             metadata["provider_job_id"] = submission.job_id
@@ -162,6 +218,12 @@ class AsyncShotProvider(BaseProvider, ShotProviderContract):
                 "model": model_name,
                 "trace_id": f"trace_{uuid4().hex[:12]}",
                 "clip_count": len(clips),
+                "render_attempts": attempts_trace,
+                "retry_policy": {
+                    "attempt_timeout_sec": render_attempt_timeout_sec,
+                    "max_attempts": max_render_attempts,
+                    "progressive_backoff_base_sec": retry_backoff_base_sec,
+                },
             },
             latency_ms=latency_ms,
             cost_estimate=0.02 * len(clips),
