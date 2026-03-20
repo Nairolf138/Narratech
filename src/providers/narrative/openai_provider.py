@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import random
+import socket
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -38,7 +40,16 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
             "temperature": 0.2,
             "max_remediation_attempts": 1,
             "include_prompt_in_trace": True,
+            "retry_max_attempts": 2,
+            "retry_base_delay_sec": 0.25,
+            "retry_max_delay_sec": 2.0,
+            "retry_jitter_sec": 0.15,
+            "circuit_breaker_enabled": False,
+            "circuit_breaker_failure_threshold": 5,
+            "circuit_breaker_open_sec": 30.0,
         }
+        self._consecutive_failures = 0
+        self._circuit_open_until = 0.0
 
     def configure(self, config: Mapping[str, Any]) -> None:
         self._config.update(dict(config))
@@ -65,6 +76,7 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
         api_key = str(self._config.get("api_key") or "")
         temperature = float(self._config.get("temperature", 0.2))
         max_remediation_attempts = int(self._config.get("max_remediation_attempts", 1))
+        self._ensure_circuit_closed()
 
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(
@@ -87,7 +99,12 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
                 user_prompt=user_prompt,
                 temperature=temperature,
             )
-            api_response = self._transport(payload, timeout_sec, api_key, endpoint)
+            api_response = self._call_transport_with_retry(
+                payload=payload,
+                timeout_sec=timeout_sec,
+                api_key=api_key,
+                endpoint=endpoint,
+            )
             usage = self._extract_usage(api_response, existing_usage=usage)
             raw_text = self._extract_text(api_response)
 
@@ -135,6 +152,7 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
                     validation_error=last_error,
                 )
 
+        self._register_failure()
         raise ProviderInvalidResponse(
             f"Impossible d'obtenir un JSON narratif valide après remédiation: {last_error}"
         )
@@ -273,15 +291,87 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
         try:
             with request.urlopen(req, timeout=timeout_sec) as response:  # noqa: S310
                 return json.loads(response.read().decode("utf-8"))
-        except error.HTTPError as http_exc:
-            status = getattr(http_exc, "code", None)
-            if status in {401, 403}:
-                raise ProviderAuthError("Authentification OpenAI invalide.") from http_exc
-            if status == 429:
-                raise ProviderRateLimit("Quota OpenAI dépassé.") from http_exc
-            if status in {408, 504}:
-                raise ProviderTimeout("Timeout OpenAI.") from http_exc
-            raise ProviderInvalidResponse(f"Erreur HTTP OpenAI inattendue ({status}).") from http_exc
-        except TimeoutError as timeout_exc:
-            raise ProviderTimeout("Timeout OpenAI.") from timeout_exc
+        except Exception as exc:
+            raise self._map_transport_error(exc) from exc
 
+    def _call_transport_with_retry(
+        self,
+        *,
+        payload: dict[str, Any],
+        timeout_sec: float,
+        api_key: str,
+        endpoint: str,
+    ) -> dict[str, Any]:
+        max_attempts = max(0, int(self._config.get("retry_max_attempts", 2)))
+        last_error: ProviderTimeout | ProviderRateLimit | None = None
+
+        for attempt in range(max_attempts + 1):
+            try:
+                response = self._transport(payload, timeout_sec, api_key, endpoint)
+                self._reset_failure_state()
+                return response
+            except Exception as exc:
+                mapped_error = self._map_transport_error(exc)
+                if not isinstance(mapped_error, (ProviderTimeout, ProviderRateLimit)):
+                    raise mapped_error from exc
+                last_error = mapped_error
+                self._register_failure()
+                if attempt >= max_attempts:
+                    break
+                time.sleep(self._compute_backoff_delay(attempt))
+
+        if last_error is not None:
+            raise last_error
+        raise ProviderInvalidResponse("Échec transport OpenAI sans erreur transitoire explicite.")
+
+    def _compute_backoff_delay(self, attempt: int) -> float:
+        base = float(self._config.get("retry_base_delay_sec", 0.25))
+        max_delay = float(self._config.get("retry_max_delay_sec", 2.0))
+        jitter = max(0.0, float(self._config.get("retry_jitter_sec", 0.15)))
+        delay = min(max_delay, base * (2**attempt))
+        return max(0.0, delay + random.uniform(0.0, jitter))
+
+    def _ensure_circuit_closed(self) -> None:
+        if not bool(self._config.get("circuit_breaker_enabled", False)):
+            return
+        now = time.monotonic()
+        if now < self._circuit_open_until:
+            remaining = round(self._circuit_open_until - now, 3)
+            raise ProviderRateLimit(
+                f"Circuit breaker narratif ouvert; nouvelle tentative dans {remaining}s."
+            )
+
+    def _register_failure(self) -> None:
+        self._consecutive_failures += 1
+        if not bool(self._config.get("circuit_breaker_enabled", False)):
+            return
+
+        threshold = max(1, int(self._config.get("circuit_breaker_failure_threshold", 5)))
+        if self._consecutive_failures >= threshold:
+            open_sec = max(1.0, float(self._config.get("circuit_breaker_open_sec", 30.0)))
+            self._circuit_open_until = time.monotonic() + open_sec
+
+    def _reset_failure_state(self) -> None:
+        self._consecutive_failures = 0
+        self._circuit_open_until = 0.0
+
+    def _map_transport_error(self, exc: Exception) -> Exception:
+        if isinstance(exc, (ProviderTimeout, ProviderRateLimit, ProviderAuthError, ProviderInvalidResponse)):
+            return exc
+        if isinstance(exc, error.HTTPError):
+            status = getattr(exc, "code", None)
+            if status in {401, 403}:
+                return ProviderAuthError("Authentification OpenAI invalide.")
+            if status == 429:
+                return ProviderRateLimit("Quota OpenAI dépassé.")
+            if status in {408, 504}:
+                return ProviderTimeout("Timeout OpenAI.")
+            return ProviderInvalidResponse(f"Erreur HTTP OpenAI inattendue ({status}).")
+        if isinstance(exc, (TimeoutError, socket.timeout)):
+            return ProviderTimeout("Timeout OpenAI.")
+        if isinstance(exc, error.URLError):
+            reason = str(getattr(exc, "reason", "")).lower()
+            if "timed out" in reason or "timeout" in reason:
+                return ProviderTimeout("Timeout OpenAI.")
+            return ProviderRateLimit("OpenAI indisponible temporairement.")
+        return ProviderInvalidResponse(str(exc) or "Erreur de transport OpenAI.")
