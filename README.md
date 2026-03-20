@@ -411,20 +411,35 @@ Pourquoi invalide : `request_id` et `prompt` vides, mauvaise version (`narrative
 ### Prérequis
 - Python 3.11+ (testé avec Python 3.12).
 - Aucun service externe requis pour le run minimal.
-- Dépendances Python déclarées par le projet : **aucune** (`requirements*.txt`, `pyproject.toml`, `setup.py` absents).
+- Dépendances Python déclarées par le projet : définies dans `pyproject.toml` (installation locale via `pip install -e .`).
 
-### Commandes exactes (environnement vierge)
+### Commandes exactes — mode dev (sans installation)
 ```bash
 # depuis la racine du dépôt
 python3 -m venv .venv_clean
 source .venv_clean/bin/activate
-
-# installation stricte des dépendances déclarées
-# (aucune dépendance projet à installer)
 python -m pip install --upgrade pip
 
-# exécution minimale
+# exécution du pipeline par défaut
 python main.py
+
+# validation d'un document narratif
+python main.py validate outputs/scene.json
+```
+
+### Commandes exactes — mode installé (script console)
+```bash
+# depuis la racine du dépôt
+python3 -m venv .venv_clean
+source .venv_clean/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+
+# exécution du pipeline par défaut
+narratech
+
+# validation d'un document narratif
+narratech validate outputs/scene.json
 ```
 
 ### Lancer le smoke test local
@@ -461,10 +476,12 @@ Le pipeline valide ensuite aussi `outputs/scene_enriched.json` contre `schemas/n
 ### Commande CLI
 
 ```bash
+# mode dev
 python main.py validate outputs/scene.json
-```
 
-(équivalent à `narratech validate outputs/scene.json` si un exécutable `narratech` est configuré dans votre environnement).
+# mode installé
+narratech validate outputs/scene.json
+```
 
 ### Exemples
 
