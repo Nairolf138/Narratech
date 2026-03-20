@@ -18,6 +18,7 @@ from src.providers.base import (
     ProviderTimeout,
 )
 from src.providers.contracts import AssetProviderContract
+from src.providers.trace import build_provider_trace
 
 
 class MockAssetProvider(BaseProvider, AssetProviderContract):
@@ -99,16 +100,22 @@ class MockAssetProvider(BaseProvider, AssetProviderContract):
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         model_name = "mock-asset-v1"
+        cost_estimate = 0.001
         return ProviderResponse(
             data={"request_id": request_id, "assets": assets},
-            provider_trace={
-                "stage": "asset_generation",
-                "provider": "mock_asset_provider",
-                "model": model_name,
-                "trace_id": f"trace_{uuid4().hex[:12]}",
-            },
+            provider_trace=build_provider_trace(
+                provider="mock_asset_provider",
+                model=model_name,
+                latency_ms=latency_ms,
+                cost_estimate=cost_estimate,
+                retries=0,
+                status="success",
+                error=None,
+                stage="asset_generation",
+                trace_id=f"trace_{uuid4().hex[:12]}",
+            ),
             latency_ms=latency_ms,
-            cost_estimate=0.001,
+            cost_estimate=cost_estimate,
             model_name=model_name,
         )
 

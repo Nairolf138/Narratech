@@ -41,6 +41,8 @@ from src.providers import (
 )
 from src.providers.adapter import call_with_normalized_errors
 from src.providers.contracts import AssetProviderContract, ShotProviderContract
+from src.providers.trace import build_provider_trace
+from src.core.provider_benchmark import aggregate_provider_benchmark, update_global_provider_benchmark
 
 T = TypeVar("T")
 DEFAULT_DEGRADED_RATIO_THRESHOLD = 0.2
@@ -183,7 +185,17 @@ def _write_placeholder_clip(*, shot: dict, order: int, request_id: str, reason: 
         "request_id": request_id,
         "duration": duration,
         "order": order,
-        "provider_trace": {"provider": "placeholder", "reason": reason},
+        "provider_trace": build_provider_trace(
+            provider="placeholder",
+            model="placeholder",
+            latency_ms=0,
+            cost_estimate=0.0,
+            retries=0,
+            status="degraded",
+            error=reason,
+            stage="shot_generation",
+            reason=reason,
+        ),
         "latency_ms": 0,
         "cost_estimate": 0.0,
         "model_name": "placeholder",
@@ -709,6 +721,40 @@ def _run_pipeline(args: list[str]) -> int:
             "success_criteria": provider_bundle.success_criteria,
             "total_runtime_sec": round(time.perf_counter() - started_at, 3),
         }
+        provider_traces: list[dict] = []
+        scene_traces = narrative.get("provider_trace")
+        if isinstance(scene_traces, list):
+            provider_traces.extend([trace for trace in scene_traces if isinstance(trace, dict)])
+        provider_traces.extend(
+            [
+                asset.get("provider_trace")
+                for asset in asset_refs
+                if isinstance(asset, dict) and isinstance(asset.get("provider_trace"), dict)
+            ]
+        )
+        provider_traces.extend(
+            [
+                clip.get("provider_trace")
+                for clip in clips
+                if isinstance(clip, dict) and isinstance(clip.get("provider_trace"), dict)
+            ]
+        )
+        provider_traces.extend(
+            [
+                artifact.get("provider_trace")
+                for artifact in audio_artifacts
+                if isinstance(artifact, dict) and isinstance(artifact.get("provider_trace"), dict)
+            ]
+        )
+
+        run_benchmark = aggregate_provider_benchmark(request_id=request_id, traces=provider_traces)
+        write_json_utf8("outputs/benchmarks/provider_benchmark_run.json", run_benchmark)
+        global_benchmark = update_global_provider_benchmark(run_benchmark=run_benchmark)
+        manifest["provider_benchmark_run_file"] = "outputs/benchmarks/provider_benchmark_run.json"
+        manifest["provider_benchmark_global_file"] = "outputs/benchmarks/provider_benchmark_global.json"
+        manifest["provider_benchmark_totals"] = run_benchmark["totals"]
+        manifest["provider_benchmark_global_totals"] = global_benchmark["totals"]
+
         write_json_utf8("outputs/manifest.json", manifest)
         _assert_required_artifacts()
 

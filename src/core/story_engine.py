@@ -56,15 +56,25 @@ class StoryEngine:
         response_trace.setdefault("stage", "story_generation")
         response_trace.setdefault("provider", "mock_narrative_provider")
         response_trace.setdefault("model", response.model_name)
+        response_trace.setdefault("modele", response.model_name)
         response_trace.setdefault("trace_id", f"trace_{uuid4().hex[:12]}")
         response_trace["latency_ms"] = response.latency_ms
+        response_trace.setdefault("cost_estimate", response.cost_estimate)
+        response_trace.setdefault("retries", 0)
+        response_trace.setdefault("status", "success")
+        response_trace.setdefault("error", None)
 
         allowed_trace_keys = {
             "stage",
             "provider",
             "model",
+            "modele",
             "trace_id",
             "latency_ms",
+            "cost_estimate",
+            "retries",
+            "status",
+            "error",
             "fallback_mode",
             "fallback_reason",
         }

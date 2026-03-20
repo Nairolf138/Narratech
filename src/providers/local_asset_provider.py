@@ -13,6 +13,7 @@ from src.providers.adapter import call_with_normalized_errors
 from src.providers.base import BaseProvider, ProviderHealth, ProviderInvalidResponse, ProviderRequest, ProviderResponse
 from src.providers.contracts import AssetProviderContract
 from src.core.user_context import build_user_context
+from src.providers.trace import build_provider_trace
 
 
 class LocalAssetProvider(BaseProvider, AssetProviderContract):
@@ -96,24 +97,30 @@ class LocalAssetProvider(BaseProvider, AssetProviderContract):
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         model_name = "local-asset-v2"
+        cost_estimate = 0.0
         return ProviderResponse(
             data={"request_id": request_id, "assets": assets},
-            provider_trace={
-                "stage": "asset_generation",
-                "provider": "local_asset_provider",
-                "model": model_name,
-                "trace_id": f"trace_{uuid4().hex[:12]}",
-                "mode": mode,
-                "deterministic": True,
-                "personalization_applied": {
+            provider_trace=build_provider_trace(
+                provider="local_asset_provider",
+                model=model_name,
+                latency_ms=latency_ms,
+                cost_estimate=cost_estimate,
+                retries=0,
+                status="success",
+                error=None,
+                stage="asset_generation",
+                trace_id=f"trace_{uuid4().hex[:12]}",
+                mode=mode,
+                deterministic=True,
+                personalization_applied={
                     "language": user_profile["preferences"]["language"],
                     "age_rating": user_profile["constraints"]["age_rating"],
                     "culture": user_profile["constraints"]["culture"],
                     "exclusions": user_profile["constraints"]["exclusions"],
                 },
-            },
+            ),
             latency_ms=latency_ms,
-            cost_estimate=0.0,
+            cost_estimate=cost_estimate,
             model_name=model_name,
         )
 

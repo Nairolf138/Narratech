@@ -19,6 +19,7 @@ from src.providers.base import (
     ProviderTimeout,
 )
 from src.providers.contracts import AudioProviderContract
+from src.providers.trace import build_provider_trace
 
 
 class MockAudioProvider(BaseProvider, AudioProviderContract):
@@ -116,6 +117,7 @@ class MockAudioProvider(BaseProvider, AudioProviderContract):
 
         latency_ms = int((time.perf_counter() - start) * 1000)
         model_name = "mock-audio-v1"
+        cost_estimate = 0.001
         return ProviderResponse(
             data={
                 "request_id": request_id,
@@ -130,15 +132,20 @@ class MockAudioProvider(BaseProvider, AudioProviderContract):
                 },
                 "timestamps": timeline,
             },
-            provider_trace={
-                "stage": "audio_generation",
-                "provider": provider_name,
-                "model": model_name,
-                "trace_id": f"trace_{uuid4().hex[:12]}",
-                "mode": mode,
-            },
+            provider_trace=build_provider_trace(
+                provider=provider_name,
+                model=model_name,
+                latency_ms=latency_ms,
+                cost_estimate=cost_estimate,
+                retries=0,
+                status="success",
+                error=None,
+                stage="audio_generation",
+                trace_id=f"trace_{uuid4().hex[:12]}",
+                mode=mode,
+            ),
             latency_ms=latency_ms,
-            cost_estimate=0.001,
+            cost_estimate=cost_estimate,
             model_name=model_name,
         )
 
