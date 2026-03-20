@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from src.core.io_utils import write_json_utf8
+from src.core.user_context import UserProfile, build_user_context
 from src.providers import MockShotProvider, ProviderRequest
 from src.providers.adapter import call_with_normalized_errors
 from src.providers.contracts import ShotProviderContract
@@ -24,6 +25,7 @@ def generate(
     scene_doc: dict,
     provider: ShotProviderContract | None = None,
     asset_refs: list[dict] | None = None,
+    user_profile: UserProfile | None = None,
 ) -> list[dict]:
     """Écrit un fichier placeholder par shot via un provider injectable."""
     if not isinstance(scene_doc, dict):
@@ -36,6 +38,7 @@ def generate(
     SHOTS_ROOT.mkdir(parents=True, exist_ok=True)
 
     request_id = str(scene_doc.get("request_id", "request_unknown"))
+    resolved_profile = build_user_context(user_profile)
     active_provider = provider or MockShotProvider()
     resolved_asset_refs = asset_refs if asset_refs is not None else output.get("asset_refs")
     if resolved_asset_refs is None:
@@ -50,6 +53,7 @@ def generate(
                         "request_id": request_id,
                         "output": output,
                         "asset_refs": resolved_asset_refs,
+                        "user_profile": resolved_profile,
                     },
                     timeout_sec=10.0,
                 )
@@ -62,6 +66,7 @@ def generate(
                         "request_id": request_id,
                         "output": output,
                         "asset_refs": resolved_asset_refs,
+                        "user_profile": resolved_profile,
                     },
                     timeout_sec=10.0,
                 )
@@ -111,6 +116,10 @@ def generate(
                 "duration": duration,
                 "order": order,
                 "provider_trace": response.provider_trace,
+                "personalization": {
+                    "language": resolved_profile["preferences"]["language"],
+                    "rhythm": resolved_profile["preferences"]["rhythm"],
+                },
                 "latency_ms": response.latency_ms,
                 "cost_estimate": response.cost_estimate,
                 "model_name": response.model_name,

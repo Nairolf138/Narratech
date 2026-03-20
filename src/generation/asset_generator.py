@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 from src.core.io_utils import write_json_utf8
+from src.core.user_context import UserProfile, build_user_context
 from src.providers import MockAssetProvider, ProviderRequest
 from src.providers.adapter import call_with_normalized_errors
 from src.providers.contracts import AssetProviderContract
@@ -44,7 +45,11 @@ def _resolve_uri(asset: dict, asset_dir: Path, index: int) -> str:
     return f"local://{(asset_dir / normalized_name).as_posix()}"
 
 
-def generate(scene_doc: dict, provider: AssetProviderContract | None = None) -> list[dict]:
+def generate(
+    scene_doc: dict,
+    provider: AssetProviderContract | None = None,
+    user_profile: UserProfile | None = None,
+) -> list[dict]:
     """Génère les placeholders d'assets via un provider injectable."""
     if not isinstance(scene_doc, dict):
         raise TypeError("scene_doc doit être un dictionnaire")
@@ -54,6 +59,7 @@ def generate(scene_doc: dict, provider: AssetProviderContract | None = None) -> 
         raise ValueError("scene_doc.output doit être un objet")
 
     request_id = str(scene_doc.get("request_id", "request_unknown"))
+    resolved_profile = build_user_context(user_profile)
     asset_dir = ASSETS_ROOT / request_id
     asset_dir.mkdir(parents=True, exist_ok=True)
 
@@ -63,18 +69,26 @@ def generate(scene_doc: dict, provider: AssetProviderContract | None = None) -> 
             active_provider.generate_assets(
                 ProviderRequest(
                     request_id=request_id,
-                    payload={"request_id": request_id, "output": output},
+                    payload={
+                        "request_id": request_id,
+                        "output": output,
+                        "user_profile": resolved_profile,
+                    },
                     timeout_sec=10.0,
                 )
             )
             if hasattr(active_provider, "generate_assets")
             else active_provider.generate(
                 ProviderRequest(
-                    request_id=request_id,
-                    payload={"request_id": request_id, "output": output},
-                    timeout_sec=10.0,
+                        request_id=request_id,
+                        payload={
+                            "request_id": request_id,
+                            "output": output,
+                            "user_profile": resolved_profile,
+                        },
+                        timeout_sec=10.0,
+                    )
                 )
-            )
         )
     )
 
@@ -97,6 +111,10 @@ def generate(scene_doc: dict, provider: AssetProviderContract | None = None) -> 
             "generation_params": asset.get("generation_params"),
             "request_id": request_id,
             "provider_trace": response.provider_trace,
+            "personalization": {
+                "language": resolved_profile["preferences"]["language"],
+                "age_rating": resolved_profile["constraints"]["age_rating"],
+            },
             "latency_ms": response.latency_ms,
             "cost_estimate": response.cost_estimate,
             "model_name": response.model_name,

@@ -12,6 +12,7 @@ from uuid import uuid4
 from src.providers.adapter import call_with_normalized_errors
 from src.providers.base import BaseProvider, ProviderHealth, ProviderInvalidResponse, ProviderRequest, ProviderResponse
 from src.providers.contracts import AssetProviderContract
+from src.core.user_context import build_user_context
 
 
 class LocalAssetProvider(BaseProvider, AssetProviderContract):
@@ -54,6 +55,7 @@ class LocalAssetProvider(BaseProvider, AssetProviderContract):
         base_seed = int(request.payload.get("seed") or self._config.get("default_seed") or 0)
         generation_params = self._resolve_generation_params(request.payload)
         mode = str(self._config.get("mode") or "local")
+        user_profile = build_user_context(request.payload.get("user_profile"))
 
         start = time.perf_counter()
         assets: list[dict] = []
@@ -64,7 +66,7 @@ class LocalAssetProvider(BaseProvider, AssetProviderContract):
                 continue
             seed = base_seed + index
             asset_id = f"asset_character_{index:03d}"
-            prompt = self._build_character_prompt(output=output, character=character)
+            prompt = self._build_character_prompt(output=output, character=character, user_profile=user_profile)
             self._validate_prompt(prompt=prompt, character=character)
             assets.append(
                 self._materialize_asset(
@@ -79,7 +81,7 @@ class LocalAssetProvider(BaseProvider, AssetProviderContract):
             )
 
         scene_seed = base_seed + len(assets) + 1
-        env_prompt = self._build_environment_prompt(output=output)
+        env_prompt = self._build_environment_prompt(output=output, user_profile=user_profile)
         assets.append(
             self._materialize_asset(
                 request_id=request_id,
@@ -103,6 +105,12 @@ class LocalAssetProvider(BaseProvider, AssetProviderContract):
                 "trace_id": f"trace_{uuid4().hex[:12]}",
                 "mode": mode,
                 "deterministic": True,
+                "personalization_applied": {
+                    "language": user_profile["preferences"]["language"],
+                    "age_rating": user_profile["constraints"]["age_rating"],
+                    "culture": user_profile["constraints"]["culture"],
+                    "exclusions": user_profile["constraints"]["exclusions"],
+                },
             },
             latency_ms=latency_ms,
             cost_estimate=0.0,
@@ -124,7 +132,13 @@ class LocalAssetProvider(BaseProvider, AssetProviderContract):
                 return dict(shot["consistency_packet"])
         return {}
 
-    def _build_character_prompt(self, *, output: Mapping[str, object], character: Mapping[str, object]) -> str:
+    def _build_character_prompt(
+        self,
+        *,
+        output: Mapping[str, object],
+        character: Mapping[str, object],
+        user_profile: Mapping[str, object],
+    ) -> str:
         packet = self._extract_primary_packet(output)
         character_id = str(character.get("id") or "unknown_character")
         character_name = str(character.get("name") or character_id)
@@ -161,6 +175,8 @@ class LocalAssetProvider(BaseProvider, AssetProviderContract):
         if scenes and isinstance(scenes[0], dict):
             environment = str(scenes[0].get("summary") or "")
 
+        constraints = user_profile.get("constraints") if isinstance(user_profile.get("constraints"), dict) else {}
+        exclusions = ", ".join(str(item) for item in constraints.get("exclusions", [])) or "none"
         return (
             f"Character concept art for {character_name} ({character_id}).\n"
             f"Scene context: {environment}.\n"
@@ -168,10 +184,13 @@ class LocalAssetProvider(BaseProvider, AssetProviderContract):
             f"Palette: {', '.join(str(item) for item in palette) or 'N/A'}.\n"
             f"Signature clothing: {', '.join(str(item) for item in clothing) or 'N/A'}.\n"
             f"Expected core traits: {', '.join(str(item) for item in traits) or 'N/A'}.\n"
+            f"Age rating: {constraints.get('age_rating', '13+')}. "
+            f"Culture framing: {constraints.get('culture', 'global')}. "
+            f"Exclusions: {exclusions}.\n"
             "Respect strict de la continuité inter-scènes."
         )
 
-    def _build_environment_prompt(self, *, output: Mapping[str, object]) -> str:
+    def _build_environment_prompt(self, *, output: Mapping[str, object], user_profile: Mapping[str, object]) -> str:
         packet = self._extract_primary_packet(output)
         visual = packet.get("visual_continuity") if isinstance(packet.get("visual_continuity"), dict) else {}
 
@@ -181,6 +200,8 @@ class LocalAssetProvider(BaseProvider, AssetProviderContract):
         if scenes and isinstance(scenes[0], dict):
             scene_summary = str(scenes[0].get("summary") or "")
 
+        constraints = user_profile.get("constraints") if isinstance(user_profile.get("constraints"), dict) else {}
+        exclusions = ", ".join(str(item) for item in constraints.get("exclusions", [])) or "none"
         return (
             "Environment matte painting.\n"
             f"Narrative synopsis: {synopsis}.\n"
@@ -188,6 +209,9 @@ class LocalAssetProvider(BaseProvider, AssetProviderContract):
             f"Mood: {str(visual.get('mood_tone') or 'tension contenue')}.\n"
             f"Lighting profile: {str(visual.get('lighting_profile') or 'cinematic soft key light')}.\n"
             f"Camera style: {str(visual.get('camera_style') or 'cinematic dolly')}.\n"
+            f"Audience age rating: {constraints.get('age_rating', '13+')}. "
+            f"Culture framing: {constraints.get('culture', 'global')}. "
+            f"Exclusions: {exclusions}.\n"
             "Respect strict de la continuité inter-scènes."
         )
 

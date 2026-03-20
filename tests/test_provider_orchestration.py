@@ -22,6 +22,7 @@ from src.providers import (
     ShotProviderContract,
 )
 from src.core.schema_validator import validate_narrative_document
+from src.core.user_context import build_user_context
 from src.providers.narrative.openai_provider import OpenAINarrativeProvider
 from src.providers.adapter import call_with_normalized_errors
 
@@ -243,6 +244,7 @@ def test_targeted_shot_retries_fallback_to_placeholder() -> None:
         secondary_provider=secondary,
         asset_provider=MockAssetProvider(),
         asset_refs=[{"id": "asset_character_001"}, {"id": "asset_environment_001"}],
+        user_profile=build_user_context({"identity": {"session_id": "session_shot_001"}}),
     )
 
     assert len(clips) == 2
