@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from src.core.consistency_engine import (
+    build_coherence_metrics,
     build_consistency_packet,
     build_consistency_report,
     enrich,
@@ -232,3 +233,32 @@ def test_enrich_outputs_document_valid_against_enriched_schema() -> None:
     enriched = enrich(narrative)["enriched_doc"]
 
     validate_narrative_document(enriched, schema_path=ENRICHED_SCHEMA_PATH)
+
+
+def test_build_coherence_metrics_returns_subscores_and_global_score() -> None:
+    narrative = _narrative()
+    enriched = enrich(narrative)["enriched_doc"]
+    report = build_consistency_report(enriched)
+
+    metrics = build_coherence_metrics(enriched, report)
+
+    assert metrics["coherence_score"] >= 0.0
+    assert metrics["coherence_score"] <= 1.0
+    assert set(metrics["subscores"].keys()) == {
+        "character_trait_alignment",
+        "visual_palette_lighting_similarity",
+        "narrative_tension_progression",
+    }
+    assert "details" in metrics
+
+
+def test_build_coherence_metrics_can_export_json_per_run(tmp_path) -> None:
+    narrative = _narrative()
+    narrative["request_id"] = "req_test_metrics"
+    enriched = enrich(narrative)["enriched_doc"]
+    report = build_consistency_report(enriched)
+
+    build_coherence_metrics(enriched, report, export_json=True, output_dir=tmp_path.as_posix())
+
+    assert (tmp_path / "coherence_metrics.json").exists()
+    assert (tmp_path / "coherence_metrics_req_test_metrics.json").exists()
