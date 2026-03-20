@@ -59,6 +59,10 @@ def load_provider_bundle(environment: str | None = None, config_dir: str = "conf
     env_name = environment or os.getenv("NARRATECH_ENV", "local")
     config_path = Path(config_dir) / f"providers.{env_name}.json"
     if not config_path.exists():
+        root_relative = Path(__file__).resolve().parents[2] / config_dir / f"providers.{env_name}.json"
+        if root_relative.exists():
+            config_path = root_relative
+    if not config_path.exists():
         raise FileNotFoundError(
             f"Configuration provider introuvable pour l'environnement '{env_name}': {config_path.as_posix()}"
         )
