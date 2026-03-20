@@ -115,6 +115,9 @@ def generate(
                 "cost_estimate": response.cost_estimate,
                 "model_name": response.model_name,
                 "asset_dependencies": asset_dependency_ids,
+                "clip_uri": clip.get("clip_uri"),
+                "local_path": clip.get("local_path"),
+                "technical_metadata": clip.get("technical_metadata", {}),
             }
         )
         dependencies.append({"shot_id": shot_id, "asset_ids": asset_dependency_ids})

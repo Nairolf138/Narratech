@@ -270,6 +270,9 @@ def _try_generate_single_shot(
                 "model_name": response.model_name,
                 "quality_flag": "standard",
                 "asset_dependencies": asset_dependencies,
+                "clip_uri": payload_clip.get("clip_uri"),
+                "local_path": payload_clip.get("local_path"),
+                "technical_metadata": payload_clip.get("technical_metadata", {}),
             }
         except (ProviderTimeout, ProviderRateLimit) as exc:
             transient_error = exc

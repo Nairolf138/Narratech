@@ -18,6 +18,7 @@ from .mock_asset_provider import MockAssetProvider
 from .mock_narrative_provider import MockNarrativeProvider
 from .mock_shot_provider import MockShotProvider
 from .picsum_shot_provider import PicsumShotProvider
+from .async_shot_provider import AsyncShotProvider
 from .narrative.openai_provider import OpenAINarrativeProvider
 from .factory import create_narrative_provider
 
@@ -41,6 +42,7 @@ __all__ = [
     "LocalAssetProvider",
     "MockShotProvider",
     "PicsumShotProvider",
+    "AsyncShotProvider",
     "OpenAINarrativeProvider",
     "create_narrative_provider",
 ]
