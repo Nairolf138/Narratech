@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 from src.core.schema_validator import NarrativeValidationError, validate_narrative_document
 
@@ -28,6 +28,8 @@ SAFE_DEFAULT_USER_CONTEXT: dict[str, Any] = {
         "session_id": "session_default",
     },
 }
+
+UserProfile: TypeAlias = dict[str, Any]
 
 
 def build_user_context(payload: dict[str, Any] | None = None) -> dict[str, Any]:

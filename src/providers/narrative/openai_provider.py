@@ -13,6 +13,7 @@ from urllib import error, request
 from uuid import uuid4
 
 from src.core.schema_validator import NarrativeValidationError, validate_narrative_document
+from src.core.user_context import build_user_context
 from src.providers.adapter import call_with_normalized_errors
 from src.providers.base import (
     BaseProvider,
@@ -69,6 +70,12 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
         duration_sec = int(request_obj.payload.get("duration_sec", 45))
         style = str(request_obj.payload.get("style") or "cinematic")
         language = str(request_obj.payload.get("language") or "fr")
+        user_profile = build_user_context(request_obj.payload.get("user_profile"))
+        preferences = user_profile["preferences"]
+        constraints = user_profile["constraints"]
+        duration_sec = int(preferences.get("duration_sec") or duration_sec)
+        style = str(preferences.get("genre") or style)
+        language = str(preferences.get("language") or language)
 
         timeout_sec = float(request_obj.timeout_sec or 20.0)
         model_name = str(self._config.get("model") or "gpt-4.1-mini")
@@ -78,13 +85,14 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
         max_remediation_attempts = int(self._config.get("max_remediation_attempts", 1))
         self._ensure_circuit_closed()
 
-        system_prompt = self._build_system_prompt()
+        system_prompt = self._build_system_prompt(user_profile=user_profile)
         user_prompt = self._build_user_prompt(
             request_id=request_obj.request_id,
             prompt=prompt.strip(),
             duration_sec=duration_sec,
             style=style,
             language=language,
+            user_profile=user_profile,
         )
 
         start = time.perf_counter()
@@ -128,6 +136,13 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
                     "latency_ms": latency_ms,
                     "usage": usage,
                     "attempts": attempt + 1,
+                    "personalization_applied": {
+                        "language": language,
+                        "genre": style,
+                        "age_rating": constraints.get("age_rating"),
+                        "culture": constraints.get("culture"),
+                        "exclusions": list(constraints.get("exclusions") or []),
+                    },
                 }
                 if bool(self._config.get("include_prompt_in_trace", True)):
                     provider_trace["prompt"] = {
@@ -170,14 +185,19 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
             },
         )
 
-    def _build_system_prompt(self) -> str:
+    def _build_system_prompt(self, *, user_profile: dict[str, Any]) -> str:
+        constraints = user_profile.get("constraints", {})
+        age_rating = constraints.get("age_rating", "13+")
+        culture = constraints.get("culture", "global")
+        exclusions = ", ".join(str(item) for item in constraints.get("exclusions", [])) or "none"
         return (
             "Tu es un moteur de génération narrative strict. "
             "Tu DOIS répondre avec un JSON brut valide (aucun markdown, aucun texte hors JSON) "
             "conforme au schéma narrative.v1: racine avec request_id, schema_version='narrative.v1', "
             "input, output, provider_trace. Respecte les contraintes: 1 scene, 1-2 characters, "
             "duration scene 30-60 sec, shots avec duration_sec > 0, audio_plan et render_plan complets. "
-            "N'ajoute aucune propriété hors schéma."
+            "N'ajoute aucune propriété hors schéma. "
+            f"Respecte le niveau d'âge {age_rating}, le contexte culturel {culture}, exclusions={exclusions}."
         )
 
     def _build_user_prompt(
@@ -188,7 +208,11 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
         duration_sec: int,
         style: str,
         language: str,
+        user_profile: dict[str, Any],
     ) -> str:
+        preferences = user_profile.get("preferences", {})
+        constraints = user_profile.get("constraints", {})
+        exclusions = ", ".join(str(item) for item in constraints.get("exclusions", [])) or "none"
         return (
             "Génère un document narratif JSON conforme.\n"
             f"request_id={request_id}\n"
@@ -196,6 +220,11 @@ class OpenAINarrativeProvider(BaseProvider, NarrativeProviderContract):
             f"duration_sec={duration_sec}\n"
             f"style={style}\n"
             f"language={language}\n"
+            f"ambiance={preferences.get('ambiance', 'neutral')}\n"
+            f"rhythm={preferences.get('rhythm', 'medium')}\n"
+            f"age_rating={constraints.get('age_rating', '13+')}\n"
+            f"culture={constraints.get('culture', 'global')}\n"
+            f"exclusions={exclusions}\n"
             "Assure-toi que provider_trace existe et contient au moins un événement."
         )
 

@@ -6,6 +6,7 @@ import time
 from collections.abc import Mapping
 from uuid import uuid4
 
+from src.core.user_context import build_user_context
 from src.providers.adapter import call_with_normalized_errors
 from src.providers.base import (
     BaseProvider,
@@ -58,15 +59,17 @@ class MockNarrativeProvider(BaseProvider, NarrativeProviderContract):
         start = time.perf_counter()
         cleaned_prompt = prompt.strip()
         scene_id = "scene_1"
+        user_profile = build_user_context(request.payload.get("user_profile"))
+        preferences = user_profile["preferences"]
 
         data = {
             "request_id": request.request_id,
             "schema_version": "narrative.v1",
             "input": {
                 "prompt": cleaned_prompt,
-                "duration_sec": 45,
-                "style": "cinematic",
-                "language": "fr",
+                "duration_sec": int(preferences.get("duration_sec") or 45),
+                "style": str(preferences.get("genre") or "cinematic"),
+                "language": str(preferences.get("language") or "fr"),
             },
             "output": {
                 "synopsis": (

@@ -23,11 +23,14 @@ from src.core.schema_validator import (
     validate_narrative_document,
     validate_narrative_file,
 )
+from src.core.user_context import build_user_context
 from src.config import load_provider_bundle
 from src.core.story_engine import StoryEngine
 from src.generation.asset_generator import generate as generate_assets
+from src.generation.shot_generator import generate as generate_shots
 from src.providers import (
     BaseProvider,
+    MockShotProvider,
     ProviderError,
     ProviderRateLimit,
     ProviderRequest,
@@ -195,6 +198,7 @@ def _try_generate_single_shot(
     max_retries: int,
     scope_label: str,
     asset_refs: list[dict],
+    user_profile: dict,
 ) -> dict:
     transient_error: Exception | None = None
 
@@ -215,6 +219,7 @@ def _try_generate_single_shot(
                                 "request_id": request_id,
                                 "output": shot_doc["output"],
                                 "asset_refs": asset_refs,
+                                "user_profile": user_profile,
                             },
                             timeout_sec=10.0,
                         )
@@ -227,6 +232,7 @@ def _try_generate_single_shot(
                                 "request_id": request_id,
                                 "output": shot_doc["output"],
                                 "asset_refs": asset_refs,
+                                "user_profile": user_profile,
                             },
                             timeout_sec=10.0,
                         )
@@ -301,6 +307,7 @@ def _generate_shots_with_targeted_retries(
     secondary_provider: ShotProviderContract,
     asset_provider: AssetProviderContract,
     asset_refs: list[dict],
+    user_profile: dict,
 ) -> tuple[list[dict], dict]:
     output = scene_doc.get("output")
     if not isinstance(output, dict):
@@ -332,6 +339,7 @@ def _generate_shots_with_targeted_retries(
                 max_retries=2,
                 scope_label="shot",
                 asset_refs=asset_refs,
+                user_profile=user_profile,
             )
         except (ProviderTimeout, ProviderRateLimit):
             generated_clip = None
@@ -348,6 +356,7 @@ def _generate_shots_with_targeted_retries(
                     max_retries=1,
                     scope_label="shot_fallback",
                     asset_refs=asset_refs,
+                    user_profile=user_profile,
                 )
             except (ProviderTimeout, ProviderRateLimit):
                 generated_clip = None
@@ -361,7 +370,7 @@ def _generate_shots_with_targeted_retries(
                 scope_id=str(shot.get("id") or f"shot_{order:03d}"),
                 attempt=1,
             )
-            asset_refs = generate_assets(scene_doc, provider=asset_provider)
+            asset_refs = generate_assets(scene_doc, provider=asset_provider, user_profile=user_profile)
             try:
                 generated_clip = _try_generate_single_shot(
                     shot=shot,
@@ -372,6 +381,7 @@ def _generate_shots_with_targeted_retries(
                     max_retries=0,
                     scope_label="asset_retry",
                     asset_refs=asset_refs,
+                    user_profile=user_profile,
                 )
             except (ProviderTimeout, ProviderRateLimit):
                 generated_clip = None
@@ -395,6 +405,7 @@ def _generate_shots_with_targeted_retries(
                     max_retries=0,
                     scope_label="scene_retry",
                     asset_refs=asset_refs,
+                    user_profile=user_profile,
                 )
             except (ProviderTimeout, ProviderRateLimit):
                 generated_clip = None
@@ -459,6 +470,7 @@ def _run_pipeline(args: list[str]) -> int:
         # 1) load_prompt
         log_step("chargement prompt")
         prompt = load_prompt(args)
+        user_profile = build_user_context({"identity": {"session_id": f"session_{request_id}"}})
         prompt_path = Path("outputs/prompt.txt")
         prompt_path.write_text(prompt + "\n", encoding="utf-8")
         _transition(PipelineStage.PROMPT_LOADED, "Prompt chargé avec succès")
@@ -476,8 +488,15 @@ def _run_pipeline(args: list[str]) -> int:
 
         # 2) StoryEngine
         log_step("génération story")
+        def _generate_story(active_provider: BaseProvider) -> dict:
+            engine = StoryEngine(provider=active_provider)
+            try:
+                return engine.generate(prompt, request_id=request_id, user_profile=user_profile)
+            except TypeError:
+                return engine.generate(prompt, request_id=request_id)
+
         narrative = _execute_with_retry_and_fallback(
-            action=lambda active_provider: StoryEngine(provider=active_provider).generate(prompt, request_id=request_id),
+            action=_generate_story,
             provider=story_provider,
             state=state,
             stage=PipelineStage.STORY_GENERATED,
@@ -515,7 +534,11 @@ def _run_pipeline(args: list[str]) -> int:
         # 4) AssetGenerator
         log_step("génération assets")
         asset_refs = _execute_with_retry_and_fallback(
-            action=lambda active_provider: generate_assets(enriched_narrative, provider=active_provider),
+            action=lambda active_provider: generate_assets(
+                enriched_narrative,
+                provider=active_provider,
+                user_profile=user_profile,
+            ),
             provider=asset_provider,
             state=state,
             stage=PipelineStage.ASSETS_GENERATED,
@@ -534,6 +557,7 @@ def _run_pipeline(args: list[str]) -> int:
             secondary_provider=shot_fallback_provider,
             asset_provider=asset_provider,
             asset_refs=asset_refs,
+            user_profile=user_profile,
         )
         state.set_degradation(
             total_shots=int(quality_metrics["total_shots"]),

@@ -9,6 +9,7 @@ from uuid import uuid4
 from src.providers.adapter import call_with_normalized_errors
 from src.providers.base import BaseProvider, ProviderHealth, ProviderInvalidResponse, ProviderRequest, ProviderResponse, ProviderTimeout
 from src.providers.contracts import ShotProviderContract
+from src.core.user_context import build_user_context
 from src.providers.video_render_adapters import (
     KlingVideoRenderAdapter,
     LocalVideoRenderAdapter,
@@ -72,12 +73,20 @@ class AsyncShotProvider(BaseProvider, ShotProviderContract):
 
         raise ProviderInvalidResponse("payload.shots_manifest (ou payload.output.shots) doit être fourni")
 
-    def _map_prompt(self, shot: Mapping[str, object], order: int, asset_ids: list[str]) -> str:
+    def _map_prompt(
+        self,
+        shot: Mapping[str, object],
+        order: int,
+        asset_ids: list[str],
+        user_profile: Mapping[str, object],
+    ) -> str:
         shot_id = str(shot.get("id") or shot.get("shot_id") or f"shot_{order:03d}")
         description = str(shot.get("enriched_prompt") or shot.get("description") or "")
         duration = float(shot.get("duration_sec") or shot.get("duration") or 0.0)
         style = str(shot.get("style") or self._config.get("default_style") or "neutral")
         template = str(self._config.get("prompt_template") or "{description}")
+        preferences = user_profile.get("preferences") if isinstance(user_profile.get("preferences"), dict) else {}
+        constraints = user_profile.get("constraints") if isinstance(user_profile.get("constraints"), dict) else {}
 
         return template.format(
             shot_id=shot_id,
@@ -85,6 +94,10 @@ class AsyncShotProvider(BaseProvider, ShotProviderContract):
             duration_sec=duration,
             style=style,
             asset_hints=",".join(asset_ids) if asset_ids else "none",
+            language=preferences.get("language", "fr"),
+            rhythm=preferences.get("rhythm", "medium"),
+            age_rating=constraints.get("age_rating", "13+"),
+            exclusions=",".join(str(item) for item in constraints.get("exclusions", [])) or "none",
         )
 
     def _generate_shots_impl(self, request: ProviderRequest) -> ProviderResponse:
@@ -101,6 +114,7 @@ class AsyncShotProvider(BaseProvider, ShotProviderContract):
             for asset in asset_refs
             if isinstance(asset, dict) and asset.get("id") is not None
         ]
+        user_profile = build_user_context(request_payload.get("user_profile"))
 
         start = time.perf_counter()
         poll_interval_sec = float(self._config.get("poll_interval_sec") or 0.01)
@@ -116,7 +130,7 @@ class AsyncShotProvider(BaseProvider, ShotProviderContract):
         for order, shot in enumerate(shots_manifest, start=1):
             shot_id = str(shot.get("id") or shot.get("shot_id") or f"shot_{order:03d}")
             duration = float(shot.get("duration_sec") or shot.get("duration") or 0.0)
-            prompt = self._map_prompt(shot, order, asset_ids)
+            prompt = self._map_prompt(shot, order, asset_ids, user_profile)
 
             final_status = None
             submission = None
@@ -223,6 +237,12 @@ class AsyncShotProvider(BaseProvider, ShotProviderContract):
                     "attempt_timeout_sec": render_attempt_timeout_sec,
                     "max_attempts": max_render_attempts,
                     "progressive_backoff_base_sec": retry_backoff_base_sec,
+                },
+                "personalization_applied": {
+                    "language": user_profile["preferences"]["language"],
+                    "rhythm": user_profile["preferences"]["rhythm"],
+                    "age_rating": user_profile["constraints"]["age_rating"],
+                    "exclusions": user_profile["constraints"]["exclusions"],
                 },
             },
             latency_ms=latency_ms,
