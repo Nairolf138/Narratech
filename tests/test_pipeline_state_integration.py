@@ -8,8 +8,11 @@ from pathlib import Path
 import pytest
 
 import src.config.providers as provider_config
+from src.config.providers import ProviderBundle, ProviderSlot
 from src.core.story_engine import StoryEngine
 from src.main import _run_pipeline
+from src.providers import MockAssetProvider, MockAudioProvider, MockNarrativeProvider, MockShotProvider
+from src.providers import ProviderRateLimit
 
 
 def _read_json(path: Path) -> dict:
@@ -238,3 +241,167 @@ def test_pipeline_applies_feedback_adjustments_to_next_generation(
     assert applied is not None
     assert applied["story"] == "clarify"
     assert applied["rhythm"] == "slow_down"
+
+
+def test_pipeline_recovers_from_narrative_failure_with_local_fallback(
+    isolated_workdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingNarrativeProvider:
+        def configure(self, config: dict) -> None:  # pragma: no cover - compat
+            _ = config
+
+        def generate(self, request):
+            _ = request
+            raise ProviderRateLimit("quota cloud dépassé")
+
+    provider_bundle = ProviderBundle(
+        environment="test",
+        vertical="generic",
+        story=ProviderSlot(
+            primary=FailingNarrativeProvider(),
+            fallback=MockNarrativeProvider(),
+            fallback_policy={"enabled": True, "trigger_on": ["ProviderRateLimit"]},
+        ),
+        asset=ProviderSlot(
+            primary=MockAssetProvider(),
+            fallback=MockAssetProvider(),
+            fallback_policy={"enabled": True, "trigger_on": ["ProviderRateLimit"]},
+        ),
+        shot=ProviderSlot(
+            primary=MockShotProvider(),
+            fallback=MockShotProvider(),
+            fallback_policy={"enabled": True, "trigger_on": ["ProviderRateLimit"]},
+        ),
+        audio=ProviderSlot(
+            primary=MockAudioProvider(),
+            fallback=MockAudioProvider(),
+            fallback_policy={"enabled": True, "trigger_on": ["ProviderRateLimit"]},
+        ),
+        success_criteria={},
+    )
+    monkeypatch.setattr("src.main.load_provider_bundle", lambda: provider_bundle)
+
+    exit_code = _run_pipeline([])
+    assert exit_code == 0
+
+    scene = _read_json(isolated_workdir / "outputs" / "scene.json")
+    trace = scene.get("provider_trace")
+    assert isinstance(trace, list) and trace
+    assert trace[-1]["fallback_mode"] is True
+    assert trace[-1]["fallback_reason"] == "ProviderRateLimit"
+
+
+def test_pipeline_handles_temporary_shot_failure_with_retry(
+    isolated_workdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FlakyShotProvider:
+        def __init__(self) -> None:
+            self.failures_remaining: dict[str, int] = {"shot_001": 1}
+
+        def configure(self, config: dict) -> None:  # pragma: no cover - compat
+            _ = config
+
+        def generate(self, request):
+            payload = request.payload if isinstance(request.payload, dict) else {}
+            shots = payload.get("output", {}).get("shots", [])
+            shot = shots[0] if shots and isinstance(shots[0], dict) else {}
+            shot_id = str(shot.get("id") or "shot_001")
+            if self.failures_remaining.get(shot_id, 0) > 0:
+                self.failures_remaining[shot_id] -= 1
+                raise ProviderRateLimit(f"temp failure {shot_id}")
+
+            from src.providers import ProviderResponse
+
+            return ProviderResponse(
+                data={
+                    "clips": [
+                        {
+                            "shot_id": shot_id,
+                            "duration": float(shot.get("duration_sec") or 2.0),
+                            "description_enriched": "ok",
+                        }
+                    ]
+                },
+                provider_trace={"provider": "flaky_shot"},
+                latency_ms=1,
+                cost_estimate=0.0,
+                model_name="flaky",
+            )
+
+        def healthcheck(self):
+            from src.providers import ProviderHealth
+
+            return ProviderHealth(ok=True)
+
+    monkeypatch.setitem(provider_config._PROVIDER_REGISTRY, "mock_shot", FlakyShotProvider)
+
+    exit_code = _run_pipeline([])
+    assert exit_code == 0
+
+    state = _read_json(isolated_workdir / "outputs" / "pipeline_state.json")
+    shots_manifest = _read_json(isolated_workdir / "outputs" / "shots" / "shots_manifest.json")
+    assert state["retry_events"]
+    assert any(event["scope_type"] == "shot" for event in state["retry_events"])
+    assert shots_manifest["quality"]["degraded_shots"] == 0
+
+
+def test_pipeline_keeps_running_when_audio_fails_in_degraded_mode(
+    isolated_workdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("NARRATECH_ALLOW_DEGRADED_AUDIO", "1")
+    monkeypatch.setattr(
+        "src.main.build_from_audio_plan",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("audio backend indisponible")),
+    )
+
+    exit_code = _run_pipeline([])
+    assert exit_code == 0
+
+    state = _read_json(isolated_workdir / "outputs" / "pipeline_state.json")
+    audio_manifest = _read_json(isolated_workdir / "outputs" / "audio" / "audio_manifest.json")
+    manifest = _read_json(isolated_workdir / "outputs" / "manifest.json")
+
+    assert state["current_stage"] == "completed"
+    assert any("audio_degraded" in error["reason"] for error in state["errors"])
+    assert audio_manifest["degraded_mode"] is True
+    assert audio_manifest["count"] == 0
+    assert manifest["audio_files"] == []
+    assert (isolated_workdir / "outputs" / "final" / "final_video.mp4").exists()
+
+
+def test_pipeline_failure_keeps_partial_artifacts_and_consistent_logs(
+    isolated_workdir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    narrative = StoryEngine().generate("Prompt de test.")
+    monkeypatch.setattr("src.main.load_prompt", lambda _args: "prompt")
+    monkeypatch.setattr("src.main.StoryEngine", lambda *args, **kwargs: type("Stub", (), {"generate": lambda _self, _p, request_id=None: narrative})())
+    monkeypatch.setattr(
+        "src.main.enrich",
+        lambda _doc: {
+            "enriched_doc": narrative,
+            "consistency_report": [
+                {
+                    "rule_id": "character_ids_consistency",
+                    "severity": "error",
+                    "location": "output.characters",
+                    "message": "Violation bloquante",
+                    "suggested_fix": "Corriger",
+                }
+            ],
+        },
+    )
+
+    exit_code = _run_pipeline([])
+    assert exit_code == 1
+
+    state = _read_json(isolated_workdir / "outputs" / "pipeline_state.json")
+    assert state["current_stage"] == "failed"
+    assert state["failed_stage"] == "consistency_enriched"
+    assert state["transitions"][-1]["to_stage"] == "failed"
+    assert (isolated_workdir / "outputs" / "recommendation.json").exists()
+    assert (isolated_workdir / "outputs" / "consistency_report.json").exists()
+    assert not (isolated_workdir / "outputs" / "manifest.json").exists()
