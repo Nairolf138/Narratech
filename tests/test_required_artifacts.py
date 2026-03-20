@@ -20,12 +20,15 @@ def test_pipeline_generates_required_manifests(isolated_workdir: Path) -> None:
 
     manifest_path = isolated_workdir / "outputs" / "manifest.json"
     shots_manifest_path = isolated_workdir / "outputs" / "shots" / "shots_manifest.json"
+    coherence_metrics_path = isolated_workdir / "outputs" / "coherence_metrics.json"
 
     assert manifest_path.exists()
     assert shots_manifest_path.exists()
+    assert coherence_metrics_path.exists()
 
     manifest = _read_json(manifest_path)
     shots_manifest = _read_json(shots_manifest_path)
+    coherence_metrics = _read_json(coherence_metrics_path)
 
     assert manifest["shots_manifest_file"] == "outputs/shots/shots_manifest.json"
     assert manifest["request_id"]
@@ -33,6 +36,9 @@ def test_pipeline_generates_required_manifests(isolated_workdir: Path) -> None:
     assert shots_manifest["count"] > 0
     assert len(shots_manifest["clips"]) == shots_manifest["count"]
     assert len(shots_manifest["asset_dependencies"]) == shots_manifest["count"]
+    assert coherence_metrics["request_id"] == manifest["request_id"]
+    assert "subscores" in coherence_metrics
+    assert (isolated_workdir / "outputs" / f"coherence_metrics_{manifest['request_id']}.json").exists()
 
 
 def test_pipeline_generates_audio_outputs(isolated_workdir: Path) -> None:

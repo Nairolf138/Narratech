@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from src.assembly.audio_engine import build_from_audio_plan
 from src.assembly.video_assembler import assemble as assemble_video
-from src.core.consistency_engine import enrich, has_blocking_violations
+from src.core.consistency_engine import build_coherence_metrics, enrich, has_blocking_violations
 from src.core.input_loader import load_prompt
 from src.core.io_utils import write_json_utf8
 from src.core.logger import log_step, log_transition
@@ -449,25 +449,6 @@ def _generate_shots_with_targeted_retries(
     write_json_utf8("outputs/shots/shots_manifest.json", shots_manifest)
     output["clips"] = clips
     return clips, shots_manifest["quality"]
-
-
-
-
-def _build_coherence_metrics(consistency_report: list[dict]) -> dict[str, float]:
-    """Construit des métriques de cohérence minimales à partir du rapport de règles."""
-    total = len(consistency_report)
-    if total <= 0:
-        return {"coherence_score": 1.0, "max_tension_jump": 0.0, "trope_repetition_ratio": 0.0}
-
-    errors = sum(1 for item in consistency_report if isinstance(item, dict) and item.get("severity") == "error")
-    warnings = sum(1 for item in consistency_report if isinstance(item, dict) and item.get("severity") == "warning")
-    coherence_score = max(0.0, 1.0 - ((errors * 1.0 + warnings * 0.5) / total))
-    return {
-        "coherence_score": round(coherence_score, 3),
-        "max_tension_jump": 0.0,
-        "trope_repetition_ratio": 0.0,
-    }
-
 def _run_pipeline(args: list[str]) -> int:
     """Démarre le pipeline Narratech de bout en bout."""
     ensure_dirs()
@@ -553,7 +534,11 @@ def _run_pipeline(args: list[str]) -> int:
         consistency_report = consistency_result["consistency_report"]
         consistency_report_path = write_json_utf8("outputs/consistency_report.json", consistency_report)
 
-        coherence_metrics = _build_coherence_metrics(consistency_report)
+        coherence_metrics = build_coherence_metrics(
+            enriched_narrative,
+            consistency_report,
+            export_json=True,
+        )
         recommender = RecommendationEngine()
         recommendation = recommender.recommend(
             user_id=session_id,

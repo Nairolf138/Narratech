@@ -44,6 +44,12 @@ def _normalize_token(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().lower())
 
 
+def _safe_div(numerator: float, denominator: float) -> float:
+    if denominator <= 0:
+        return 0.0
+    return numerator / denominator
+
+
 def build_consistency_packet(scene_doc: dict) -> dict:
     """Construit un consistency packet aligné avec docs/consistency_rules.md."""
     output = scene_doc.get("output")
@@ -679,6 +685,203 @@ def build_consistency_report(scene_doc: dict) -> list[dict]:
     report.extend(_rule_tension_jump(output))
     report.extend(_rule_causal_order(output))
     return report
+
+
+def _compute_character_trait_alignment(output: dict) -> tuple[float, dict]:
+    shots = [shot for shot in output.get("shots", []) if isinstance(shot, dict)]
+    if not shots:
+        return 1.0, {"comparisons": 0}
+
+    reference_packet = shots[0].get("consistency_packet")
+    if not isinstance(reference_packet, dict):
+        return 0.0, {"comparisons": 0}
+
+    reference_traits: dict[str, set[str]] = {}
+    for character in reference_packet.get("characters", []):
+        if not isinstance(character, dict):
+            continue
+        char_id = character.get("character_id")
+        core_traits = character.get("core_traits")
+        if not isinstance(char_id, str) or not isinstance(core_traits, list):
+            continue
+        normalized_traits = {
+            _normalize_token(trait)
+            for trait in core_traits
+            if isinstance(trait, str) and trait.strip()
+        }
+        if normalized_traits:
+            reference_traits[char_id] = normalized_traits
+
+    overlap_scores: list[float] = []
+    for shot in shots:
+        packet = shot.get("consistency_packet")
+        if not isinstance(packet, dict):
+            continue
+        characters = packet.get("characters")
+        if not isinstance(characters, list):
+            continue
+        for character in characters:
+            if not isinstance(character, dict):
+                continue
+            char_id = character.get("character_id")
+            core_traits = character.get("core_traits")
+            if (
+                not isinstance(char_id, str)
+                or char_id not in reference_traits
+                or not isinstance(core_traits, list)
+            ):
+                continue
+            current_traits = {
+                _normalize_token(trait)
+                for trait in core_traits
+                if isinstance(trait, str) and trait.strip()
+            }
+            if not current_traits:
+                overlap_scores.append(0.0)
+                continue
+            overlap = _safe_div(len(current_traits & reference_traits[char_id]), len(reference_traits[char_id]))
+            overlap_scores.append(overlap)
+
+    score = _safe_div(sum(overlap_scores), len(overlap_scores)) if overlap_scores else 0.0
+    return round(score, 3), {"comparisons": len(overlap_scores)}
+
+
+def _compute_visual_similarity(output: dict) -> tuple[float, dict]:
+    shots = [shot for shot in output.get("shots", []) if isinstance(shot, dict)]
+    if len(shots) <= 1:
+        return 1.0, {"pairs": 0}
+
+    pair_scores: list[float] = []
+    for idx in range(1, len(shots)):
+        previous = shots[idx - 1].get("consistency_constraints")
+        current = shots[idx].get("consistency_constraints")
+        if not isinstance(previous, dict) or not isinstance(current, dict):
+            pair_scores.append(0.0)
+            continue
+
+        prev_palette = {
+            _normalize_token(color)
+            for color in (previous.get("color_palette") or [])
+            if isinstance(color, str) and color.strip()
+        }
+        curr_palette = {
+            _normalize_token(color)
+            for color in (current.get("color_palette") or [])
+            if isinstance(color, str) and color.strip()
+        }
+        palette_score = 1.0 if not prev_palette and not curr_palette else _safe_div(
+            len(prev_palette & curr_palette),
+            len(prev_palette | curr_palette),
+        )
+
+        prev_lighting = str(previous.get("lighting_style") or "")
+        curr_lighting = str(current.get("lighting_style") or "")
+        lighting_score = 1.0 if _normalize_token(prev_lighting) == _normalize_token(curr_lighting) else 0.0
+        pair_scores.append((palette_score * 0.6) + (lighting_score * 0.4))
+
+    score = _safe_div(sum(pair_scores), len(pair_scores)) if pair_scores else 0.0
+    return round(score, 3), {"pairs": len(pair_scores)}
+
+
+def _compute_tension_progression(output: dict) -> tuple[float, dict]:
+    shots = [shot for shot in output.get("shots", []) if isinstance(shot, dict)]
+    tensions: list[float] = []
+    max_allowed_jump = float(DEFAULT_QUALITY_GATES["max_tension_jump"])
+
+    for shot in shots:
+        packet = shot.get("consistency_packet")
+        if not isinstance(packet, dict):
+            continue
+        narrative = packet.get("narrative_continuity")
+        if isinstance(narrative, dict) and isinstance(narrative.get("tension_level"), (int, float)):
+            tensions.append(float(narrative["tension_level"]))
+        gates = packet.get("quality_gates")
+        if isinstance(gates, dict) and isinstance(gates.get("max_tension_jump"), (int, float)):
+            max_allowed_jump = float(gates["max_tension_jump"])
+
+    if len(tensions) <= 1:
+        return 1.0, {"steps": 0, "max_observed_jump": 0.0}
+
+    non_decreasing_steps = 0
+    jumps: list[float] = []
+    excess_penalties: list[float] = []
+    jump_scale = max(1.0, 10.0 - max_allowed_jump)
+
+    for idx in range(1, len(tensions)):
+        diff = tensions[idx] - tensions[idx - 1]
+        if diff >= 0:
+            non_decreasing_steps += 1
+        jump = abs(diff)
+        jumps.append(jump)
+        excess = max(0.0, jump - max_allowed_jump)
+        excess_penalties.append(min(1.0, excess / jump_scale))
+
+    trend_score = _safe_div(non_decreasing_steps, len(tensions) - 1)
+    jump_score = 1.0 - _safe_div(sum(excess_penalties), len(excess_penalties))
+    progression = (trend_score * 0.6) + (jump_score * 0.4)
+
+    return round(progression, 3), {
+        "steps": len(tensions) - 1,
+        "non_decreasing_steps": non_decreasing_steps,
+        "max_observed_jump": round(max(jumps) if jumps else 0.0, 3),
+    }
+
+
+def _compute_trope_repetition_ratio(output: dict) -> float:
+    shots = [shot for shot in output.get("shots", []) if isinstance(shot, dict)]
+    descriptions = [
+        _normalize_token(str(shot.get("description") or ""))
+        for shot in shots
+        if str(shot.get("description") or "").strip()
+    ]
+    if not descriptions:
+        return 0.0
+    unique = len(set(descriptions))
+    return round(max(0.0, 1.0 - _safe_div(unique, len(descriptions))), 3)
+
+
+def build_coherence_metrics(
+    scene_doc: dict,
+    consistency_report: list[dict] | None = None,
+    *,
+    export_json: bool = False,
+    output_dir: str = "outputs",
+) -> dict:
+    """Calcule des sous-scores de cohérence exploitables et un score global."""
+    output = scene_doc.get("output")
+    if not isinstance(output, dict):
+        raise ValueError("scene_doc.output doit être un objet.")
+
+    traits_score, traits_details = _compute_character_trait_alignment(output)
+    visual_score, visual_details = _compute_visual_similarity(output)
+    tension_score, tension_details = _compute_tension_progression(output)
+    trope_repetition_ratio = _compute_trope_repetition_ratio(output)
+
+    global_score = round((traits_score * 0.4) + (visual_score * 0.35) + (tension_score * 0.25), 3)
+    metrics = {
+        "request_id": scene_doc.get("request_id", "unknown_request"),
+        "coherence_score": global_score,
+        "subscores": {
+            "character_trait_alignment": traits_score,
+            "visual_palette_lighting_similarity": visual_score,
+            "narrative_tension_progression": tension_score,
+        },
+        "max_tension_jump": float(tension_details["max_observed_jump"]),
+        "trope_repetition_ratio": trope_repetition_ratio,
+        "details": {
+            "character_trait_alignment": traits_details,
+            "visual_palette_lighting_similarity": visual_details,
+            "narrative_tension_progression": tension_details,
+            "consistency_issue_count": len(consistency_report or []),
+        },
+    }
+
+    if export_json:
+        request_id = str(scene_doc.get("request_id") or "unknown_request")
+        write_json_utf8(f"{output_dir}/coherence_metrics.json", metrics)
+        write_json_utf8(f"{output_dir}/coherence_metrics_{request_id}.json", metrics)
+
+    return metrics
 
 
 def has_blocking_violations(consistency_report: list[dict]) -> bool:
