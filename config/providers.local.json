@@ -1,0 +1,23 @@
+{
+  "vertical": "local_mock_full",
+  "providers": {
+    "story": {
+      "primary": { "type": "mock_narrative", "config": {} },
+      "fallback": { "type": "mock_narrative", "config": {} }
+    },
+    "asset": {
+      "primary": { "type": "mock_asset", "config": {} },
+      "fallback": { "type": "mock_asset", "config": {} }
+    },
+    "shot": {
+      "primary": { "type": "mock_shot", "config": {} },
+      "fallback": { "type": "mock_shot", "config": {} }
+    }
+  },
+  "success_criteria": {
+    "max_total_runtime_sec": 30,
+    "expected_shot_count": 3,
+    "max_placeholder_ratio": 0.2,
+    "min_coherence_score": 0.8
+  }
+}
