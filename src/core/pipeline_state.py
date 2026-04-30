@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+import json
+from pathlib import Path
 
 
 def _utc_now_iso() -> str:
@@ -150,3 +152,39 @@ class PipelineRuntimeState:
                 for event in self.transitions
             ],
         }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> PipelineRuntimeState:
+        """Construit l'état depuis une structure JSON."""
+        transitions: list[PipelineTransitionEvent] = []
+        for raw_event in payload.get("transitions", []):
+            if not isinstance(raw_event, dict):
+                continue
+            transitions.append(
+                PipelineTransitionEvent(
+                    request_id=str(raw_event.get("request_id", payload.get("request_id", ""))),
+                    from_stage=PipelineStage(str(raw_event.get("from_stage", PipelineStage.INIT.value))),
+                    to_stage=PipelineStage(str(raw_event.get("to_stage", PipelineStage.INIT.value))),
+                    reason=str(raw_event.get("reason", "")),
+                    timestamp=str(raw_event.get("timestamp", _utc_now_iso())),
+                )
+            )
+
+        return cls(
+            request_id=str(payload.get("request_id", "")),
+            current_stage=PipelineStage(str(payload.get("current_stage", PipelineStage.INIT.value))),
+            transitions=transitions,
+            errors=[item for item in payload.get("errors", []) if isinstance(item, dict)],
+            retries={str(k): int(v) for k, v in dict(payload.get("retries", {})).items()},
+            retry_events=[item for item in payload.get("retry_events", []) if isinstance(item, dict)],
+            degraded_shots=int(payload.get("degraded_shots", 0)),
+            total_shots=int(payload.get("total_shots", 0)),
+            failed_stage=str(payload.get("failed_stage")) if payload.get("failed_stage") else None,
+        )
+
+    @staticmethod
+    def read_json_file(path: str | Path) -> dict | list:
+        """Lit un fichier JSON."""
+        with Path(path).open("r", encoding="utf-8") as stream:
+            payload = json.load(stream)
+        return payload
