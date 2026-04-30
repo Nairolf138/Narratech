@@ -20,6 +20,8 @@ class PromptRecommendation:
     tension: str
     arcs: str
     trope_variety: str
+    recommendation_policy_version: str
+    applied_signals: list[str]
     recommended_instructions: list[str]
     rationale: list[str]
 
@@ -28,6 +30,8 @@ class PromptRecommendation:
             "tension": self.tension,
             "arcs": self.arcs,
             "trope_variety": self.trope_variety,
+            "recommendation_policy_version": self.recommendation_policy_version,
+            "applied_signals": list(self.applied_signals),
             "recommended_instructions": list(self.recommended_instructions),
             "rationale": list(self.rationale),
         }
@@ -67,6 +71,8 @@ class RecommendationHistoryStore:
 class RecommendationEngine:
     """Moteur de règles heuristiques avant un modèle ML plus avancé."""
 
+    POLICY_VERSION = "recommendation_policy_v1"
+
     def __init__(self, history_store: RecommendationHistoryStore | None = None) -> None:
         self.history_store = history_store or RecommendationHistoryStore()
 
@@ -84,6 +90,7 @@ class RecommendationEngine:
 
         instructions: list[str] = []
         rationale: list[str] = []
+        applied_signals: list[str] = []
 
         coherence_score = float(metrics.get("coherence_score", 1.0))
         tension_jump = float(metrics.get("max_tension_jump", 0.0))
@@ -94,6 +101,7 @@ class RecommendationEngine:
         trope_variety = "maintain"
 
         if coherence_score < 0.75 or tension_jump > 3.0:
+            applied_signals.append("low_coherence_or_tension_jump")
             tension = "decrease"
             arcs = "stabilize"
             instructions.append("Réduire les pics de tension entre scènes successives.")
@@ -101,21 +109,25 @@ class RecommendationEngine:
             rationale.append("Cohérence narrative faible ou sauts de tension trop élevés.")
 
         if bool(feedback.get("wants_more_tension")):
+            applied_signals.append("feedback_wants_more_tension")
             tension = "increase"
             instructions.append("Augmenter graduellement la tension dramatique jusqu'au climax.")
             rationale.append("Feedback utilisateur: plus de tension souhaitée.")
 
         if bool(feedback.get("confusing_arcs")):
+            applied_signals.append("feedback_confusing_arcs")
             arcs = "clarify"
             instructions.append("Ajouter un rappel court de l'objectif d'arc au début de chaque scène.")
             rationale.append("Feedback utilisateur: arcs jugés confus.")
 
         if trope_repetition >= 0.4 or bool(feedback.get("repetitive_tropes")):
+            applied_signals.append("trope_repetition_or_feedback")
             trope_variety = "increase"
             instructions.append("Varier les tropes secondaires et éviter la répétition d'un même motif.")
             rationale.append("Répétition de tropes détectée ou signalée.")
 
         if not instructions:
+            applied_signals.append("baseline_conservative")
             instructions.append("Conserver la progression actuelle, avec micro-variations de rythme.")
             rationale.append("Aucune alerte majeure: baseline conservatrice.")
 
@@ -123,6 +135,8 @@ class RecommendationEngine:
             tension=tension,
             arcs=arcs,
             trope_variety=trope_variety,
+            recommendation_policy_version=self.POLICY_VERSION,
+            applied_signals=applied_signals,
             recommended_instructions=instructions,
             rationale=rationale,
         )

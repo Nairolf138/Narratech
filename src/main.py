@@ -765,20 +765,40 @@ def _run_pipeline(
             consistency_report,
             export_json=True,
         )
+        user_context = feedback_engine.build_user_context_from_ui_feedback()
         recommender = RecommendationEngine()
         recommendation = recommender.recommend(
             user_id=session_id,
             generated_content=enriched_narrative,
-            user_feedback={},
+            user_feedback=user_context.get("preference_signals", {}),
             coherence_metrics=coherence_metrics,
             request_id=request_id,
         )
+        recommendation_trace = {
+            "component": "recommendation_engine",
+            "policy_version": recommendation.recommendation_policy_version,
+            "applied_signals": recommendation.applied_signals,
+            "user_context_ref": user_context.get("source"),
+        }
+        provider_trace = enriched_narrative.get("provider_trace")
+        if isinstance(provider_trace, list):
+            provider_trace.append(recommendation_trace)
+        else:
+            enriched_narrative["provider_trace"] = [recommendation_trace]
+        metadata = enriched_narrative.setdefault("metadata", {})
+        if isinstance(metadata, dict):
+            metadata["recommendation"] = {
+                "policy_version": recommendation.recommendation_policy_version,
+                "applied_signals": recommendation.applied_signals,
+            }
+            metadata["user_context"] = user_context
         recommendation_payload = {
             "request_id": request_id,
             "user_id": session_id,
             "inputs": {
                 "coherence_metrics": coherence_metrics,
-                "feedback": {},
+                "feedback": user_context.get("preference_signals", {}),
+                "user_context": user_context,
                 "generated_content_ref": "outputs/scene_enriched.json",
                 "applied_feedback_adjustments": applied_feedback_adjustments,
             },
