@@ -69,3 +69,25 @@ Le `outputs/manifest.json` référence:
 - `provider_benchmark_global_file`
 - `provider_benchmark_totals`
 - `provider_benchmark_global_totals`
+
+## Résumé SLO (`slo_summary`) et états pipeline
+
+Le manifeste pipeline (`outputs/manifest.json`) contient un bloc `slo_summary` calculé à partir des `provider_trace`:
+
+- **Latence**: `latency_ms_p50`, `latency_ms_p95`
+- **Taux de service**: `success_rate`, `degraded_rate`, `retry_rate`, `error_rate`
+- **Niveaux**: agrégation `global` + `providers`
+
+Les seuils sont configurables dans `config/slo.local.json`:
+
+- `max_p95_latency_ms`
+- `min_success_rate`
+- `max_degraded_rate`
+- `max_retry_rate`
+- `max_error_rate`
+
+### Interprétation et actions
+
+- `status = ok`: tous les checks SLO passent → transition pipeline `COMPLETED`.
+- `status = warning`: seuls des dépassements non bloquants (latence/degraded/retry) sont constatés → transition `DONE_WITH_WARNINGS`.
+- `status = failed`: échec bloquant SLO (`success_rate` ou `error_rate`) → transition `FAILED` + code de sortie pipeline d'échec.
