@@ -60,3 +60,35 @@ def test_latest_adjustments_use_last_feedback_event(tmp_path: Path) -> None:
     assert latest.story == "clarify"
     assert latest.style == "stabilize"
     assert latest.rhythm == "slow_down"
+
+
+def test_ui_feedback_preprocessing_is_stable(tmp_path: Path) -> None:
+    engine = FeedbackEngine()
+    feedback_file = tmp_path / "post_watch_feedback.jsonl"
+    feedback_file.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "global_note": 5,
+                        "dimensions": {"histoire": 4, "style": 4, "rythme": 5},
+                        "commentaire": "plus de tension",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "global_note": 2,
+                        "dimensions": {"histoire": 1, "style": 2, "rythme": 2},
+                        "commentaire": "arc confus et répétitif",
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    context_a = engine.build_user_context_from_ui_feedback(path=feedback_file)
+    context_b = engine.build_user_context_from_ui_feedback(path=feedback_file)
+    assert context_a == context_b
+    assert context_a["preference_signals"]["wants_more_tension"] is True
+    assert context_a["preference_signals"]["confusing_arcs"] is True
+    assert context_a["preference_signals"]["repetitive_tropes"] is True

@@ -6,6 +6,7 @@ Ce domaine couvre les métriques de cohérence, qualité dégradée et benchmark
 
 Sources principales:
 - traces `provider_trace` de chaque domaine,
+- traces de recommandation (`policy_version`, `applied_signals`) injectées dans `scene_enriched.metadata.recommendation`,
 - état runtime `PipelineRuntimeState` (retries, erreurs, ratio dégradé),
 - rapport de cohérence (`consistency_report`).
 
@@ -20,6 +21,7 @@ Composants:
 - `outputs/benchmarks/provider_benchmark_global.json`
 - `outputs/pipeline_state.json`
 - `outputs/legal_compliance_checks.json`
+- `outputs/recommendation.json` (inclut `user_context` normalisé issu de `outputs/ui_exchange/post_watch_feedback.jsonl`)
 
 Exemple de benchmark par run:
 

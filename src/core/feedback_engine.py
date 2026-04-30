@@ -12,6 +12,7 @@ from src.core.io_utils import write_json_utf8
 
 DEFAULT_FEEDBACK_HISTORY_PATH = Path("outputs/feedback_history.json")
 DEFAULT_FEEDBACK_AUDIT_PATH = Path("outputs/feedback_audit.json")
+DEFAULT_UI_FEEDBACK_PATH = Path("outputs/ui_exchange/post_watch_feedback.jsonl")
 
 
 @dataclass(slots=True)
@@ -96,6 +97,75 @@ class FeedbackEngine:
     ) -> None:
         self.feedback_store = feedback_store or FeedbackStore()
         self.audit_store = audit_store or FeedbackAuditStore()
+
+    def build_user_context_from_ui_feedback(
+        self,
+        *,
+        path: Path | str = DEFAULT_UI_FEEDBACK_PATH,
+        max_events: int = 20,
+    ) -> dict[str, Any]:
+        target = Path(path)
+        if not target.exists():
+            return {
+                "source": target.as_posix(),
+                "event_count": 0,
+                "average_global_note": 0.0,
+                "preference_signals": {
+                    "wants_more_tension": False,
+                    "confusing_arcs": False,
+                    "repetitive_tropes": False,
+                },
+            }
+
+        events: list[dict[str, Any]] = []
+        for line in target.read_text(encoding="utf-8").splitlines():
+            raw_line = line.strip()
+            if not raw_line:
+                continue
+            payload = json.loads(raw_line)
+            if isinstance(payload, dict):
+                events.append(payload)
+        recent = events[-max(1, max_events) :]
+        normalized = [self._normalize_feedback_payload(event) for event in recent]
+
+        notes = [item["global_note"] for item in normalized]
+        avg_note = round(sum(notes) / len(notes), 3) if notes else 0.0
+        comment_blob = " ".join(item["commentaire"] for item in normalized).lower()
+        avg_story = self._average_dimension(normalized, "histoire")
+        avg_style = self._average_dimension(normalized, "style")
+        avg_rhythm = self._average_dimension(normalized, "rythme")
+
+        return {
+            "source": target.as_posix(),
+            "event_count": len(normalized),
+            "average_global_note": avg_note,
+            "dimensions_average": {
+                "histoire": avg_story,
+                "style": avg_style,
+                "rythme": avg_rhythm,
+            },
+            "preference_signals": {
+                "wants_more_tension": avg_rhythm >= 4.0 or "plus de tension" in comment_blob,
+                "confusing_arcs": avg_story <= 2.0 or "confus" in comment_blob,
+                "repetitive_tropes": "répétitif" in comment_blob or "repetitif" in comment_blob,
+            },
+        }
+
+    def _average_dimension(self, normalized: list[dict[str, Any]], key: str) -> float:
+        values = [item["dimensions"][key] for item in normalized]
+        return round(sum(values) / len(values), 3) if values else 0.0
+
+    def _normalize_feedback_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        dimensions = payload.get("dimensions") if isinstance(payload.get("dimensions"), dict) else {}
+        return {
+            "global_note": max(0, min(int(payload.get("global_note", 0) or 0), 5)),
+            "dimensions": {
+                "histoire": max(0, min(int(dimensions.get("histoire", 0) or 0), 5)),
+                "style": max(0, min(int(dimensions.get("style", 0) or 0), 5)),
+                "rythme": max(0, min(int(dimensions.get("rythme", 0) or 0), 5)),
+            },
+            "commentaire": str(payload.get("commentaire", "")).strip(),
+        }
 
     def capture_feedback(
         self,
