@@ -10,7 +10,7 @@ import pytest
 import src.config.providers as provider_config
 from src.config.providers import ProviderBundle, ProviderSlot
 from src.core.story_engine import StoryEngine
-from src.main import _run_pipeline
+from src.main import _run_pipeline, _run_resume_cli
 from src.providers import MockAssetProvider, MockAudioProvider, MockNarrativeProvider, MockShotProvider
 from src.providers import ProviderRateLimit
 
@@ -211,6 +211,37 @@ def test_pipeline_shots_manifest_references_generated_assets(
         shot_id = clip["shot_id"]
         assert clip["asset_dependencies"] == expected_asset_ids
         assert dependencies_by_shot[shot_id] == expected_asset_ids
+
+
+def test_pipeline_resume_from_assets_stage_is_idempotent(
+    isolated_workdir: Path,
+) -> None:
+    first_exit = _run_pipeline([])
+    assert first_exit == 0
+
+    state_path = isolated_workdir / "outputs" / "pipeline_state.json"
+    state = _read_json(state_path)
+    state["current_stage"] = "assets_generated"
+    state["transitions"] = [event for event in state["transitions"] if event["to_stage"] != "completed"]
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    shots_manifest_before = _read_json(isolated_workdir / "outputs" / "shots" / "shots_manifest.json")
+    assets_manifest_before = _read_json(
+        isolated_workdir / "assets" / state["request_id"] / "assets_manifest.json"
+    )
+
+    resumed_exit = _run_resume_cli(["--request-id", state["request_id"]])
+    assert resumed_exit == 0
+
+    shots_manifest_after = _read_json(isolated_workdir / "outputs" / "shots" / "shots_manifest.json")
+    assets_manifest_after = _read_json(
+        isolated_workdir / "assets" / state["request_id"] / "assets_manifest.json"
+    )
+    resumed_state = _read_json(state_path)
+
+    assert assets_manifest_after == assets_manifest_before
+    assert shots_manifest_after["count"] == shots_manifest_before["count"]
+    assert resumed_state["current_stage"] in {"completed", "done_with_warnings"}
 
 
 def test_pipeline_applies_feedback_adjustments_to_next_generation(

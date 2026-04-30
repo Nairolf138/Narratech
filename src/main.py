@@ -21,6 +21,7 @@ from src.core.input_loader import load_prompt
 from src.core.io_utils import write_json_utf8
 from src.core.logger import log_step, log_transition
 from src.core.pipeline_state import PipelineRuntimeState, PipelineStage
+from src.core.state_store import PipelineStateStore
 from src.core.feedback_engine import FeedbackEngine, load_feedback_input
 from src.core.safety import SafetyBlockError, SafetyGuard
 from src.core.recommendation_engine import RecommendationEngine
@@ -55,6 +56,19 @@ EXIT_SUCCESS = 0
 EXIT_USAGE_ERROR = 2
 EXIT_VALIDATION_ERROR = 3
 EXIT_PIPELINE_FAILURE = 10
+_STAGE_ORDER = [
+    PipelineStage.INIT,
+    PipelineStage.PROMPT_LOADED,
+    PipelineStage.STORY_GENERATED,
+    PipelineStage.NARRATIVE_VALIDATED,
+    PipelineStage.CONSISTENCY_ENRICHED,
+    PipelineStage.ASSETS_GENERATED,
+    PipelineStage.SHOTS_GENERATED,
+    PipelineStage.FINAL_ASSEMBLED,
+    PipelineStage.COMPLETED,
+    PipelineStage.DONE_WITH_WARNINGS,
+    PipelineStage.FAILED,
+]
 
 
 def _build_compliance_metadata(*, session_id: str) -> dict:
@@ -154,6 +168,10 @@ def _get_degraded_ratio_threshold() -> float:
 def _is_degraded_audio_allowed() -> bool:
     raw_value = os.getenv("NARRATECH_ALLOW_DEGRADED_AUDIO", "").strip().lower()
     return raw_value in {"1", "true", "yes", "on"}
+
+
+def _is_stage_after(current: PipelineStage, baseline: PipelineStage) -> bool:
+    return _STAGE_ORDER.index(current) > _STAGE_ORDER.index(baseline)
 
 
 def _assert_required_artifacts() -> None:
@@ -582,14 +600,20 @@ def _generate_shots_with_targeted_retries(
     write_json_utf8("outputs/shots/shots_manifest.json", shots_manifest)
     output["clips"] = clips
     return clips, shots_manifest["quality"]
-def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) -> int:
+def _run_pipeline(
+    args: list[str],
+    *,
+    user_profile_payload: dict | None = None,
+    resume_state: PipelineRuntimeState | None = None,
+) -> int:
     """Démarre le pipeline Narratech de bout en bout."""
     ensure_dirs()
-    request_id = f"req_{uuid4().hex}"
-    state = PipelineRuntimeState(request_id=request_id)
+    state = resume_state or PipelineRuntimeState(request_id=f"req_{uuid4().hex}")
+    request_id = state.request_id
+    state_store = PipelineStateStore()
 
     def _persist_state() -> None:
-        write_json_utf8("outputs/pipeline_state.json", state.to_dict())
+        state_store.save(state)
 
     def _transition(to_stage: PipelineStage, reason: str) -> None:
         event = state.transition(to_stage=to_stage, reason=reason)
@@ -602,16 +626,24 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
 
     try:
         # 1) load_prompt
-        log_step("chargement prompt")
-        prompt = load_prompt(args)
+        if state.current_stage == PipelineStage.INIT:
+            log_step("chargement prompt")
+            prompt = load_prompt(args)
+        else:
+            prompt_file = Path("outputs/prompt.txt")
+            if not prompt_file.exists():
+                raise RuntimeError("Reprise impossible: outputs/prompt.txt introuvable.")
+            prompt = prompt_file.read_text(encoding="utf-8").strip()
         session_id = os.getenv("NARRATECH_SESSION_ID", "session_default")
         profile_seed = dict(user_profile_payload or {})
         identity = profile_seed.get("identity") if isinstance(profile_seed.get("identity"), dict) else {}
         profile_seed["identity"] = {**identity, "session_id": session_id}
         user_profile = build_user_context(profile_seed)
         prompt_path = Path("outputs/prompt.txt")
-        prompt_path.write_text(prompt + "\n", encoding="utf-8")
-        _transition(PipelineStage.PROMPT_LOADED, "Prompt chargé avec succès")
+        if state.current_stage == PipelineStage.INIT:
+            prompt_path.write_text(prompt + "\n", encoding="utf-8")
+            _persist_state()
+            _transition(PipelineStage.PROMPT_LOADED, "Prompt chargé avec succès")
         print("[1/7] Prompt et contexte utilisateur chargés")
 
         feedback_engine = FeedbackEngine()
@@ -662,19 +694,28 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
             except TypeError:
                 return engine.generate(prompt, request_id=request_id)
 
-        narrative = _execute_with_retry_and_fallback(
-            action=_generate_story,
-            provider=story_provider,
-            state=state,
-            stage=PipelineStage.STORY_GENERATED,
-            fallback_provider=story_fallback_provider,
-            fallback_policy=story_fallback_policy,
-            response_validator=lambda result: validate_narrative_document(result),
-            retries=1,
-        )
+        if _is_stage_after(state.current_stage, PipelineStage.PROMPT_LOADED):
+            narrative_path = Path("outputs/scene.json")
+            if not narrative_path.exists():
+                raise RuntimeError("Reprise impossible: outputs/scene.json introuvable.")
+            narrative = PipelineRuntimeState.read_json_file(narrative_path)
+        else:
+            narrative = _execute_with_retry_and_fallback(
+                action=_generate_story,
+                provider=story_provider,
+                state=state,
+                stage=PipelineStage.STORY_GENERATED,
+                fallback_provider=story_fallback_provider,
+                fallback_policy=story_fallback_policy,
+                response_validator=lambda result: validate_narrative_document(result),
+                retries=1,
+            )
         narrative["request_id"] = request_id
         narrative["metadata"] = _build_compliance_metadata(session_id=session_id)
-        _transition(PipelineStage.STORY_GENERATED, "Narratif généré")
+        if state.current_stage == PipelineStage.PROMPT_LOADED:
+            write_json_utf8("outputs/scene.json", narrative)
+            _persist_state()
+            _transition(PipelineStage.STORY_GENERATED, "Narratif généré")
         print("[2/7] Narratif généré")
 
         # Validation schéma juste après génération
@@ -690,15 +731,23 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
             print(str(exc))
             print("Pipeline interrompu: blocage safety (post-génération narrative).")
             return 1
-        _transition(PipelineStage.NARRATIVE_VALIDATED, "Schéma narratif valide")
+        if state.current_stage == PipelineStage.STORY_GENERATED:
+            _persist_state()
+            _transition(PipelineStage.NARRATIVE_VALIDATED, "Schéma narratif valide")
 
         # 3) ConsistencyEngine
         log_step("enrichissement cohérence")
-        consistency_result = enrich(narrative)
-        enriched_narrative = consistency_result["enriched_doc"]
+        if _is_stage_after(state.current_stage, PipelineStage.NARRATIVE_VALIDATED):
+            enriched_narrative = PipelineRuntimeState.read_json_file("outputs/scene_enriched.json")
+            consistency_report = PipelineRuntimeState.read_json_file("outputs/consistency_report.json")
+        else:
+            consistency_result = enrich(narrative)
+            enriched_narrative = consistency_result["enriched_doc"]
+            consistency_report = consistency_result["consistency_report"]
         enriched_narrative["request_id"] = request_id
         enriched_narrative["metadata"] = dict(narrative.get("metadata") or {})
-        validate_narrative_document(enriched_narrative, schema_path=ENRICHED_SCHEMA_PATH)
+        if not _is_stage_after(state.current_stage, PipelineStage.NARRATIVE_VALIDATED):
+            validate_narrative_document(enriched_narrative, schema_path=ENRICHED_SCHEMA_PATH)
         log_step("validation safety post-generation enrichie")
         try:
             safety_guard.validate_output(payload=enriched_narrative, request_id=request_id, session_id=session_id)
@@ -709,7 +758,6 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
             print(str(exc))
             print("Pipeline interrompu: blocage safety (post-génération enrichie).")
             return 1
-        consistency_report = consistency_result["consistency_report"]
         consistency_report_path = write_json_utf8("outputs/consistency_report.json", consistency_report)
 
         coherence_metrics = build_coherence_metrics(
@@ -774,7 +822,10 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
             },
         )
 
-        _transition(PipelineStage.CONSISTENCY_ENRICHED, "Cohérence enrichie, rapport et recommandations générés")
+        if state.current_stage == PipelineStage.NARRATIVE_VALIDATED:
+            write_json_utf8("outputs/scene_enriched.json", enriched_narrative)
+            _persist_state()
+            _transition(PipelineStage.CONSISTENCY_ENRICHED, "Cohérence enrichie, rapport et recommandations générés")
         print("[3/7] Cohérence validée et enrichie")
 
         if has_blocking_violations(consistency_report):
@@ -787,38 +838,52 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
 
         # 4) AssetGenerator
         log_step("génération assets")
-        asset_refs = _execute_with_retry_and_fallback(
-            action=lambda active_provider: generate_assets(
-                enriched_narrative,
-                provider=active_provider,
-                user_profile=user_profile,
-            ),
-            provider=asset_provider,
-            state=state,
-            stage=PipelineStage.ASSETS_GENERATED,
-            fallback_provider=asset_fallback_provider,
-            fallback_policy=asset_fallback_policy,
-            retries=1,
-        )
-        _transition(PipelineStage.ASSETS_GENERATED, "Assets générés")
+        if _is_stage_after(state.current_stage, PipelineStage.CONSISTENCY_ENRICHED):
+            assets_manifest = PipelineRuntimeState.read_json_file(
+                Path("assets") / request_id / "assets_manifest.json"
+            )
+            asset_refs = assets_manifest.get("assets", [])
+        else:
+            asset_refs = _execute_with_retry_and_fallback(
+                action=lambda active_provider: generate_assets(
+                    enriched_narrative,
+                    provider=active_provider,
+                    user_profile=user_profile,
+                ),
+                provider=asset_provider,
+                state=state,
+                stage=PipelineStage.ASSETS_GENERATED,
+                fallback_provider=asset_fallback_provider,
+                fallback_policy=asset_fallback_policy,
+                retries=1,
+            )
+            _persist_state()
+            _transition(PipelineStage.ASSETS_GENERATED, "Assets générés")
         print("[4/7] Assets générés")
 
         # 5) ShotGenerator (retries ciblés shot > asset > scène + fallback ordonné)
         log_step("génération shots")
-        clips, quality_metrics = _generate_shots_with_targeted_retries(
-            scene_doc=enriched_narrative,
-            state=state,
-            primary_provider=shot_provider,
-            secondary_provider=shot_fallback_provider,
-            asset_provider=asset_provider,
-            asset_refs=asset_refs,
-            user_profile=user_profile,
-        )
+        if _is_stage_after(state.current_stage, PipelineStage.ASSETS_GENERATED):
+            shots_manifest = PipelineRuntimeState.read_json_file("outputs/shots/shots_manifest.json")
+            clips = list(shots_manifest.get("clips", []))
+            quality_metrics = dict(shots_manifest.get("quality", {}))
+        else:
+            clips, quality_metrics = _generate_shots_with_targeted_retries(
+                scene_doc=enriched_narrative,
+                state=state,
+                primary_provider=shot_provider,
+                secondary_provider=shot_fallback_provider,
+                asset_provider=asset_provider,
+                asset_refs=asset_refs,
+                user_profile=user_profile,
+            )
         state.set_degradation(
             total_shots=int(quality_metrics["total_shots"]),
             degraded_shots=int(quality_metrics["degraded_shots"]),
         )
-        _transition(PipelineStage.SHOTS_GENERATED, "Shots générés")
+        if state.current_stage == PipelineStage.ASSETS_GENERATED:
+            _persist_state()
+            _transition(PipelineStage.SHOTS_GENERATED, "Shots générés")
         print("[5/7] Shots générés")
 
         degraded_ratio_threshold = _get_degraded_ratio_threshold()
@@ -1025,6 +1090,29 @@ def _run_generate_cli(args: list[str]) -> int:
         return EXIT_PIPELINE_FAILURE
 
 
+def _run_resume_cli(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="narratech resume", add_help=True)
+    parser.add_argument("--request-id", required=True, help="Identifiant de requête à reprendre.")
+    parser.add_argument(
+        "--state-file",
+        default="outputs/pipeline_state.json",
+        help="Chemin du fichier d'état pipeline JSON.",
+    )
+    try:
+        parsed = parser.parse_args(args)
+    except SystemExit:
+        return EXIT_USAGE_ERROR
+
+    state = PipelineStateStore(parsed.state_file).load()
+    if state.request_id != parsed.request_id:
+        print(
+            "Reprise refusée: request_id du state-file "
+            f"({state.request_id}) différent de --request-id ({parsed.request_id})."
+        )
+        return EXIT_USAGE_ERROR
+    return _run_pipeline([], resume_state=state)
+
+
 def main() -> int:
     """Route vers la commande de validation ou exécute le pipeline."""
     args = sys.argv[1:]
@@ -1034,6 +1122,8 @@ def main() -> int:
             return _run_validation_cli(args[1:])
         if args and args[0] == "generate":
             return _run_generate_cli(args[1:])
+        if args and args[0] == "resume":
+            return _run_resume_cli(args[1:])
         return _run_pipeline(args)
 
     except Exception as exc:  # gestion d'erreur globale minimale
