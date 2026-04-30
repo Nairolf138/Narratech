@@ -1,0 +1,7 @@
+{
+  "max_p95_latency_ms": 1500,
+  "min_success_rate": 0.95,
+  "max_degraded_rate": 0.15,
+  "max_retry_rate": 0.25,
+  "max_error_rate": 0.05
+}

@@ -47,6 +47,7 @@ from src.providers.adapter import call_with_normalized_errors
 from src.providers.contracts import AssetProviderContract, ShotProviderContract
 from src.providers.trace import build_provider_trace
 from src.core.provider_benchmark import aggregate_provider_benchmark, update_global_provider_benchmark
+from src.core.slo_metrics import compute_slo_summary, evaluate_slo_status, load_slo_thresholds
 
 T = TypeVar("T")
 DEFAULT_DEGRADED_RATIO_THRESHOLD = 0.2
@@ -959,13 +960,26 @@ def _run_pipeline(args: list[str], *, user_profile_payload: dict | None = None) 
         manifest["provider_benchmark_totals"] = run_benchmark["totals"]
         manifest["provider_benchmark_global_totals"] = global_benchmark["totals"]
 
+        slo_thresholds = load_slo_thresholds()
+        slo_summary = compute_slo_summary(traces=provider_traces)
+        slo_evaluation = evaluate_slo_status(slo_summary=slo_summary, thresholds=slo_thresholds)
+        manifest["slo_summary"] = {
+            "thresholds": slo_thresholds,
+            "metrics": slo_summary,
+            "evaluation": slo_evaluation,
+        }
+
         write_json_utf8("outputs/manifest.json", manifest)
         _assert_required_artifacts()
 
-        if state.degraded_shots > 0:
+        if slo_evaluation["status"] == "failed":
+            _transition(PipelineStage.FAILED, "Pipeline terminé en échec SLO")
+            return EXIT_PIPELINE_FAILURE
+
+        if state.degraded_shots > 0 or slo_evaluation["status"] == "warning":
             _transition(
                 PipelineStage.DONE_WITH_WARNINGS,
-                f"Pipeline terminé avec dégradation ({state.degraded_shots}/{state.total_shots} shots)",
+                f"Pipeline terminé avec avertissements ({state.degraded_shots}/{state.total_shots} shots dégradés)",
             )
         else:
             _transition(PipelineStage.COMPLETED, "Pipeline terminé avec succès")
