@@ -41,10 +41,18 @@ def test_pipeline_generates_required_manifests(isolated_workdir: Path) -> None:
     assert coherence_metrics["request_id"] == manifest["request_id"]
     assert "subscores" in coherence_metrics
     legal_checks_path = isolated_workdir / "outputs" / "legal_compliance_checks.json"
+    security_checks_path = isolated_workdir / "outputs" / "security_compliance_report.json"
     assert legal_checks_path.exists()
+    assert security_checks_path.exists()
     legal_checks = _read_json(legal_checks_path)
+    security_checks = _read_json(security_checks_path)
     assert legal_checks["status"] == "ok"
     assert legal_checks["failing_checks"] == []
+    assert legal_checks["checks"]["provenance_fields_complete"] is True
+    assert legal_checks["checks"]["no_secrets_detected"] is True
+    assert security_checks["status"] == "ok"
+    assert security_checks["blocking"] is False
+    assert security_checks["findings"] == []
     assert (isolated_workdir / "outputs" / f"coherence_metrics_{manifest['request_id']}.json").exists()
 
     scene = _read_json(isolated_workdir / "outputs" / "scene.json")

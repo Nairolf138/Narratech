@@ -19,6 +19,7 @@ La politique couvre les artefacts produits par le pipeline:
 
 1. **Consentement explicite**: un consentement de génération et d’export doit être présent.
 2. **Traçabilité de provenance**: l’origine du prompt et le mode de génération doivent être renseignés.
+3. **Protection PII / secrets**: aucune fuite de secret technique ou donnée personnelle brute ne doit être exportée dans les artefacts JSON.
 3. **Contrats techniques valides**: les schémas narratifs `narrative.v1` et `narrative.enriched.v1` doivent passer.
 4. **Blocage préventif**: aucune violation bloquante de cohérence ne doit rester ouverte.
 
@@ -27,6 +28,7 @@ La politique couvre les artefacts produits par le pipeline:
 Les checks sont exécutés avant l’assemblage/export final et publiés dans:
 
 - `outputs/legal_compliance_checks.json`
+- `outputs/security_compliance_report.json`
 
 Checks couverts:
 
@@ -37,6 +39,14 @@ Checks couverts:
 - `provider_trace_present`
 - `no_blocking_consistency_violations`
 - `degraded_ratio_within_threshold`
+- `provenance_fields_complete`
+- `no_secrets_detected`
+
+Le rapport `security_compliance_report.json` indique explicitement:
+
+- le statut (`ok`/`failed`),
+- si l’échec est **bloquant**,
+- la liste de findings (`path`, `type`) détectés.
 
 Si un check échoue, le pipeline est interrompu.
 
