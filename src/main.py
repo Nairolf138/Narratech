@@ -50,6 +50,7 @@ from src.providers.contracts import AssetProviderContract, ShotProviderContract
 from src.providers.trace import build_provider_trace
 from src.core.provider_benchmark import aggregate_provider_benchmark, update_global_provider_benchmark
 from src.core.slo_metrics import compute_slo_summary, evaluate_slo_status, load_slo_thresholds
+from src.providers.router import ProviderRouter, RoutingConstraints
 
 T = TypeVar("T")
 DEFAULT_DEGRADED_RATIO_THRESHOLD = 0.2
@@ -289,6 +290,13 @@ def _working_directory(path: Path):
         os.chdir(current_dir)
 
 
+
+
+def _route_stage_providers(*, router: ProviderRouter, primary: BaseProvider, fallback: BaseProvider, constraints: RoutingConstraints) -> tuple[BaseProvider, BaseProvider]:
+    ranked = router.rank_providers(candidates=[primary, fallback], constraints=constraints)
+    if len(ranked) < 2:
+        return primary, fallback
+    return ranked[0].provider, ranked[1].provider
 def _execute_with_retry_and_fallback(
     action: Callable[[BaseProvider], T],
     provider: BaseProvider,
@@ -739,6 +747,13 @@ def _run_pipeline(
         audio_provider = provider_bundle.audio.primary
         audio_timeout_sec = float(getattr(audio_provider, "_config", {}).get("timeout_sec", 10.0)) if hasattr(audio_provider, "_config") else 10.0
 
+        router = ProviderRouter()
+        default_constraints = RoutingConstraints(max_cost=0.08, max_latency_ms=3000, min_quality_score=0.55)
+        story_provider, story_fallback_provider = _route_stage_providers(router=router, primary=story_provider, fallback=story_fallback_provider, constraints=default_constraints)
+        asset_provider, asset_fallback_provider = _route_stage_providers(router=router, primary=asset_provider, fallback=asset_fallback_provider, constraints=default_constraints)
+        shot_provider, shot_fallback_provider = _route_stage_providers(router=router, primary=shot_provider, fallback=shot_fallback_provider, constraints=default_constraints)
+        audio_provider, _audio_fallback_provider = _route_stage_providers(router=router, primary=audio_provider, fallback=provider_bundle.audio.fallback, constraints=default_constraints)
+
         # 2) StoryEngine
         log_step("génération story")
         def _generate_story(active_provider: BaseProvider) -> dict:
@@ -980,10 +995,17 @@ def _run_pipeline(
         # 6) AudioEngine
         log_step("génération audio")
         try:
-            audio_artifacts = build_from_audio_plan(
-                enriched_narrative,
+            audio_artifacts = _execute_with_retry_and_fallback(
+                action=lambda active_provider: build_from_audio_plan(
+                    enriched_narrative,
+                    provider=active_provider,
+                    timeout_sec=audio_timeout_sec,
+                ),
                 provider=audio_provider,
-                timeout_sec=audio_timeout_sec,
+                state=state,
+                stage=PipelineStage.FINAL_ASSEMBLED,
+                fallback_provider=_audio_fallback_provider,
+                retries=1,
             )
             print("[6/7] Audio généré")
         except Exception as exc:

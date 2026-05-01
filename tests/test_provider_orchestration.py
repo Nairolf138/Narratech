@@ -252,3 +252,61 @@ def test_targeted_shot_retries_fallback_to_placeholder() -> None:
     assert any(clip.get("quality_flag") == "degraded" for clip in clips)
     assert state.retry_events
     assert {event["scope_type"] for event in state.retry_events} >= {"shot", "asset", "scene"}
+
+from src.providers.router import ProviderRouter, RoutingConstraints
+
+
+def test_router_prefers_provider_with_better_quality_and_error_rate(tmp_path) -> None:
+    benchmark = {
+        "runs": [
+            {
+                "providers": [
+                    {
+                        "provider": "fast",
+                        "calls": 10,
+                        "latency_ms_total": 1000,
+                        "cost_estimate_total": 0.5,
+                        "error_count": 5,
+                        "status_counts": {"ok": 5, "degraded": 5},
+                    },
+                    {
+                        "provider": "reliable",
+                        "calls": 10,
+                        "latency_ms_total": 1800,
+                        "cost_estimate_total": 0.6,
+                        "error_count": 1,
+                        "status_counts": {"ok": 9, "degraded": 1},
+                    },
+                ]
+            }
+        ]
+    }
+    file = tmp_path / "provider_benchmark_global.json"
+    file.write_text(__import__("json").dumps(benchmark), encoding="utf-8")
+
+    p1 = MockAssetProvider(); p1.configure({"provider_name": "fast"})
+    p2 = MockAssetProvider(); p2.configure({"provider_name": "reliable"})
+
+    ranked = ProviderRouter(str(file)).rank_providers(
+        candidates=[p1, p2], constraints=RoutingConstraints(max_cost=0.2, max_latency_ms=3000, min_quality_score=0.5)
+    )
+
+    assert ranked[0].provider_name == "reliable"
+    assert ranked[1].provider_name == "fast"
+
+
+def test_router_penalizes_constraint_violations(tmp_path) -> None:
+    benchmark = {
+        "runs": [{"providers": [{"provider": "expensive", "calls": 2, "latency_ms_total": 200, "cost_estimate_total": 1.2, "error_count": 0, "status_counts": {"ok": 2}}]}]
+    }
+    file = tmp_path / "provider_benchmark_global.json"
+    file.write_text(__import__("json").dumps(benchmark), encoding="utf-8")
+
+    expensive = MockAssetProvider(); expensive.configure({"provider_name": "expensive"})
+    cheap = MockAssetProvider(); cheap.configure({"provider_name": "cheap"})
+
+    ranked = ProviderRouter(str(file)).rank_providers(
+        candidates=[expensive, cheap], constraints=RoutingConstraints(max_cost=0.05, max_latency_ms=3000, min_quality_score=0.4)
+    )
+
+    assert ranked[0].provider_name == "cheap"
