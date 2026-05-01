@@ -2,14 +2,16 @@
 
 Fonctionnalités:
 - sert l'UI statique (assets/ui_prototype/index.html)
-- expose une API locale POST /api/generation-request
-- expose une API locale POST /api/feedback
-- écrit les échanges au format JSONL standardisé dans outputs/ui_exchange/
+- proxy local vers API backend (mode API)
+- fallback historique JSONL local (mode fichier)
 """
 
 from __future__ import annotations
 
 import json
+import os
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -23,10 +25,11 @@ EXCHANGE_DIR = ROOT / "outputs" / "ui_exchange"
 GENERATION_FILE = EXCHANGE_DIR / "generation_requests.jsonl"
 FEEDBACK_FILE = EXCHANGE_DIR / "post_watch_feedback.jsonl"
 
+API_MODE = os.getenv("NARRATECH_UI_API_MODE", "0") == "1"
+API_BASE_URL = os.getenv("NARRATECH_API_BASE_URL", "http://127.0.0.1:8000")
+
 
 class UIRequestHandler(SimpleHTTPRequestHandler):
-    """Handler HTTP pour UI + API locale."""
-
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
@@ -37,13 +40,39 @@ class UIRequestHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path == "/api/generation-request":
-            self._write_record(GENERATION_FILE, kind="generation_request")
+            if API_MODE:
+                self._proxy_generation_request()
+            else:
+                self._write_record(GENERATION_FILE, kind="generation_request")
             return
         if self.path == "/api/feedback":
             self._write_record(FEEDBACK_FILE, kind="feedback")
             return
-
         self.send_error(HTTPStatus.NOT_FOUND, "Endpoint non supporté")
+
+    def _proxy_generation_request(self) -> None:
+        try:
+            payload = self._read_json_payload()
+        except ValueError as exc:
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+            return
+
+        target = f"{API_BASE_URL}/v1/generations"
+        req = urllib.request.Request(
+            target,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            self._send_json(HTTPStatus.OK, {"ok": True, **body, "backend": target})
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8")
+            self._send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "error": detail})
+        except urllib.error.URLError as exc:
+            self._send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "error": str(exc.reason)})
 
     def _read_json_payload(self) -> dict[str, Any]:
         content_length = int(self.headers.get("Content-Length", "0"))
@@ -52,7 +81,6 @@ class UIRequestHandler(SimpleHTTPRequestHandler):
             payload = json.loads(raw_payload.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             raise ValueError("Corps JSON invalide") from None
-
         if not isinstance(payload, dict):
             raise ValueError("Le payload doit être un objet JSON")
         return payload
@@ -61,10 +89,7 @@ class UIRequestHandler(SimpleHTTPRequestHandler):
         try:
             payload = self._read_json_payload()
         except ValueError as exc:
-            self._send_json(
-                HTTPStatus.BAD_REQUEST,
-                {"error": str(exc)},
-            )
+            self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             return
 
         EXCHANGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -75,18 +100,9 @@ class UIRequestHandler(SimpleHTTPRequestHandler):
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "payload": payload,
         }
-
         with target_file.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-        self._send_json(
-            HTTPStatus.OK,
-            {
-                "ok": True,
-                "record_id": record_id,
-                "exchange_file": str(target_file.relative_to(ROOT)),
-            },
-        )
+        self._send_json(HTTPStatus.OK, {"ok": True, "record_id": record_id, "exchange_file": str(target_file.relative_to(ROOT))})
 
     def _send_json(self, status: HTTPStatus, body: dict[str, Any]) -> None:
         encoded = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -100,10 +116,9 @@ class UIRequestHandler(SimpleHTTPRequestHandler):
 def run_server(host: str = "127.0.0.1", port: int = 8080) -> None:
     if not UI_DIR.exists():
         raise FileNotFoundError(f"UI introuvable: {UI_DIR}")
-
     server = ThreadingHTTPServer((host, port), UIRequestHandler)
     print(f"UI prototype disponible sur http://{host}:{port}")
-    print("Ctrl+C pour arrêter.")
+    print(f"Mode API: {'ON' if API_MODE else 'OFF'} (base={API_BASE_URL})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
