@@ -108,6 +108,8 @@ def _run_pre_publication_checks(
         "provider_trace_present": False,
         "no_blocking_consistency_violations": False,
         "degraded_ratio_within_threshold": False,
+        "provenance_fields_complete": False,
+        "no_secrets_detected": False,
     }
 
     checks["schema_narrative_valid"] = schema_narrative_valid
@@ -128,6 +130,30 @@ def _run_pre_publication_checks(
     checks["provider_trace_present"] = isinstance(trace, list) and len(trace) > 0
     checks["no_blocking_consistency_violations"] = not has_blocking_violations(consistency_report)
     checks["degraded_ratio_within_threshold"] = state.degraded_ratio <= _get_degraded_ratio_threshold()
+    provenance = metadata.get("provenance") if isinstance(metadata, dict) else None
+    checks["provenance_fields_complete"] = (
+        isinstance(provenance, dict)
+        and isinstance(provenance.get("input_origin"), str)
+        and bool(provenance.get("input_origin"))
+        and isinstance(provenance.get("generation_mode"), str)
+        and bool(provenance.get("generation_mode"))
+        and isinstance(provenance.get("human_review_required"), bool)
+        and isinstance(provenance.get("generated_at"), str)
+        and bool(provenance.get("generated_at"))
+    )
+
+    secret_leaks = _find_secret_leaks(enriched_narrative)
+    checks["no_secrets_detected"] = len(secret_leaks) == 0
+
+    security_report = {
+        "status": "ok" if checks["no_secrets_detected"] else "failed",
+        "blocking": not checks["no_secrets_detected"],
+        "checks": {
+            "no_secrets_detected": checks["no_secrets_detected"],
+        },
+        "findings": secret_leaks,
+    }
+    write_json_utf8("outputs/security_compliance_report.json", security_report)
 
     failing_checks = [name for name, status in checks.items() if not status]
     status = "ok" if not failing_checks else "failed"
@@ -135,6 +161,7 @@ def _run_pre_publication_checks(
         "status": status,
         "checks": checks,
         "failing_checks": failing_checks,
+        "security_compliance_report_file": "outputs/security_compliance_report.json",
     }
     write_json_utf8("outputs/legal_compliance_checks.json", result)
     if failing_checks:
@@ -142,6 +169,32 @@ def _run_pre_publication_checks(
             "Checks de conformité pré-publication en échec: " + ", ".join(failing_checks)
         )
     return result
+
+
+def _find_secret_leaks(payload: object) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    patterns = {
+        "openai_api_key": re.compile(r"sk-[A-Za-z0-9_-]{12,}"),
+        "aws_access_key": re.compile(r"AKIA[0-9A-Z]{16}"),
+        "private_key_block": re.compile(r"-----BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY-----"),
+    }
+
+    def _walk(value: object, path: str = "$") -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                _walk(item, f"{path}.{key}")
+            return
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                _walk(item, f"{path}[{index}]")
+            return
+        if isinstance(value, str):
+            for name, pattern in patterns.items():
+                if pattern.search(value):
+                    findings.append({"path": path, "type": name})
+
+    _walk(payload)
+    return findings
 
 
 def ensure_dirs() -> None:
