@@ -17,6 +17,7 @@ from uuid import uuid4
 from src.assembly.audio_engine import build_from_audio_plan
 from src.assembly.video_assembler import assemble as assemble_video
 from src.core.consistency_engine import build_coherence_metrics, enrich, has_blocking_violations
+from src.core.media_quality_engine import build_media_quality_report
 from src.core.input_loader import load_prompt
 from src.core.io_utils import write_json_utf8
 from src.core.logger import log_step, log_transition
@@ -1006,7 +1007,20 @@ def _run_pipeline(
 
         # 7) VideoAssembler
         log_step("assemblage final")
-        final_video_path = assemble_video(clips, "outputs/final", audio_artifacts=audio_artifacts)
+        final_video_path = assemble_video(
+            clips,
+            "outputs/final",
+            audio_artifacts=audio_artifacts,
+            transition_config={"kind": "crossfade", "duration_sec": 0.35},
+            timing_rules={"min_clip_duration_sec": 1.2, "max_clip_duration_sec": 8.0},
+        )
+        media_quality_report = build_media_quality_report(
+            request_id=request_id,
+            clips=clips,
+            consistency_report=consistency_report,
+            audio_artifacts=audio_artifacts,
+            output_dir="outputs",
+        )
         _transition(PipelineStage.FINAL_ASSEMBLED, "Assemblage final terminé")
         print("[7/7] Assemblage final terminé")
 
@@ -1022,6 +1036,7 @@ def _run_pipeline(
             "assembly_manifest_file": "outputs/final/assembly_manifest.json",
             "consistency_report": consistency_report,
             "provider_bundle": provider_bundle,
+            "media_quality_report": media_quality_report,
         }
 
         scene_path = write_json_utf8("outputs/scene.json", pipeline_artifacts["narrative"])
@@ -1055,6 +1070,7 @@ def _run_pipeline(
             },
             "audio_dir": "outputs/audio",
             "audio_manifest_file": "outputs/audio/audio_manifest.json",
+            "media_quality_report_file": "outputs/media_quality_report.json",
             "audio_files": [artifact.get("path") for artifact in audio_artifacts if isinstance(artifact, dict)],
             "final_dir": "outputs/final",
             "final_video_path": final_video_path,

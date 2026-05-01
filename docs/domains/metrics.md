@@ -56,3 +56,14 @@ Exemple de benchmark par run:
 - Traces malformed: ignorées silencieusement (métriques partielles).
 - Fichier global benchmark JSON corrompu: reset implicite au prochain run.
 - Ratio dégradé > seuil: terminaison en `failed` ou `done_with_warnings` selon policy runtime.
+
+
+## Qualité média minimale (acceptation génération)
+
+À partir du moteur `src/core/media_quality_engine.py`, chaque run publie `outputs/media_quality_report.json` avec un score composite basé sur:
+- continuité visuelle,
+- stabilité de style,
+- rythme narratif,
+- intelligibilité voix.
+
+Seuil d'acceptation recommandé: **0.75** (`threshold_min_acceptance`). En-dessous de ce seuil, la génération est marquée `accepted=false` et doit être revue avant publication.
