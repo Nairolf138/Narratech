@@ -78,7 +78,54 @@ def _build_mix_plan(voiceover_track: dict, ambience_track: dict, total_duration:
     }
 
 
-def assemble(clips: list[dict], output_dir: str, audio_artifacts: list[dict] | None = None) -> str:
+def _build_transition_plan(clips: list[dict], transition_config: dict | None = None) -> list[dict]:
+    """Construit le plan de transition paramétrable entre clips."""
+    config = transition_config or {}
+    kind = str(config.get("kind") or "cut")
+    duration_sec = float(config.get("duration_sec") or 0.4)
+    if duration_sec < 0:
+        duration_sec = 0.0
+
+    plan: list[dict] = []
+    for index in range(max(0, len(clips) - 1)):
+        plan.append(
+            {
+                "from_clip_index": index + 1,
+                "to_clip_index": index + 2,
+                "type": kind,
+                "duration_sec": round(duration_sec, 3),
+            }
+        )
+    return plan
+
+
+def _apply_timing_rules(timeline: list[dict], timing_rules: dict | None = None) -> list[dict]:
+    """Applique des règles simples de timing aux segments timeline."""
+    rules = timing_rules or {}
+    min_duration = float(rules.get("min_clip_duration_sec") or 0.0)
+    max_duration_raw = rules.get("max_clip_duration_sec")
+    max_duration = float(max_duration_raw) if max_duration_raw is not None else None
+
+    adjusted: list[dict] = []
+    cursor = 0.0
+    for item in timeline:
+        duration = float(item.get("duration_sec") or 0.0)
+        duration = max(duration, min_duration)
+        if max_duration is not None:
+            duration = min(duration, max_duration)
+        start = round(cursor, 3)
+        end = round(cursor + duration, 3)
+        cursor = end
+        patched = dict(item)
+        patched["start_sec"] = start
+        patched["end_sec"] = end
+        patched["duration_sec"] = round(duration, 3)
+        adjusted.append(patched)
+
+    return adjusted
+
+
+def assemble(clips: list[dict], output_dir: str, audio_artifacts: list[dict] | None = None, transition_config: dict | None = None, timing_rules: dict | None = None) -> str:
     """Assemble clips + audio, exporte un MP4 placeholder et un manifeste d'assemblage."""
     if not isinstance(clips, list):
         raise TypeError("clips doit être une liste de dictionnaires")
@@ -124,9 +171,13 @@ def assemble(clips: list[dict], output_dir: str, audio_artifacts: list[dict] | N
             }
         )
 
+    timeline = _apply_timing_rules(timeline, timing_rules=timing_rules)
+    total_duration = round(timeline[-1]["end_sec"], 3) if timeline else 0.0
+
     voiceover_track = _resolve_track(audio_artifacts, "voiceover")
     ambience_track = _resolve_track(audio_artifacts, "ambience")
     mix_plan = _build_mix_plan(voiceover_track, ambience_track, total_duration=total_duration)
+    transitions = _build_transition_plan(sorted_clips, transition_config=transition_config)
 
     assembly_manifest = {
         "format": "narratech.assembly.v1",
@@ -134,6 +185,8 @@ def assemble(clips: list[dict], output_dir: str, audio_artifacts: list[dict] | N
             "concat_strategy": "narrative_order",
             "clips": timeline,
             "total_duration_sec": round(total_duration, 3),
+            "transitions": transitions,
+            "timing_rules": timing_rules or {},
         },
         "audio": {
             "tracks": [
