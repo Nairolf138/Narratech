@@ -1,0 +1,47 @@
+{
+  "build_date": "2026-05-02",
+  "generated_at": "2026-05-02T00:00:34.659054+00:00",
+  "dataset": "evaluation/datasets/prompts_v1.jsonl",
+  "aggregates": {
+    "count": 3,
+    "avg_latency_ms": 1.559,
+    "p95_latency_ms": 1.289,
+    "avg_cost_estimate": 0.002,
+    "avg_quality_score": 1.0
+  },
+  "results": [
+    {
+      "id": "prompt_001",
+      "latency_ms": 2.148,
+      "provider_latency_ms": 0.0,
+      "cost_estimate": 0.002,
+      "quality_score": 1.0,
+      "tags": [
+        "inspiration",
+        "education"
+      ]
+    },
+    {
+      "id": "prompt_002",
+      "latency_ms": 1.289,
+      "provider_latency_ms": 0.0,
+      "cost_estimate": 0.002,
+      "quality_score": 1.0,
+      "tags": [
+        "cinematic",
+        "sci-fi"
+      ]
+    },
+    {
+      "id": "prompt_003",
+      "latency_ms": 1.239,
+      "provider_latency_ms": 0.0,
+      "cost_estimate": 0.002,
+      "quality_score": 1.0,
+      "tags": [
+        "wellness",
+        "calm"
+      ]
+    }
+  ]
+}
