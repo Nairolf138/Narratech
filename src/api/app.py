@@ -66,6 +66,8 @@ def create_generation(payload: dict[str, Any]) -> dict[str, Any]:
         prompt=prompt.strip(),
         narrative=narrative,
         project_id=payload.get("project_id"),
+        request_id=request_id,
+        user_id=payload.get("user_id"),
         metadata={"status": "succeeded"},
         artifacts={"scene": f"outputs/{request_id}/scene.json", "final_video": "outputs/final/final_video.mp4"},
     )
@@ -128,6 +130,37 @@ def replay_generation(project_id: str, generation_id: str) -> dict[str, Any]:
         artifacts=source.artifacts,
     )
     return {"project_id": project_id, "generation_id": replay.generation_id, "version": replay.version, "replay_of": generation_id}
+
+
+@app.post("/v1/projects/{project_id}/generations/{generation_id}/export")
+def export_generation(project_id: str, generation_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    request_id = payload.get("request_id") or f"req_{uuid4().hex}"
+    export_target = payload.get("export_target", "final_video")
+    try:
+        DEFAULT_PROJECT_STORE.record_export(
+            request_id=request_id,
+            project_id=project_id,
+            generation_id=generation_id,
+            export_target=export_target,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "export_recorded", "request_id": request_id}
+
+
+@app.delete("/v1/projects/{project_id}")
+def hard_delete_project(project_id: str, user_id: str | None = Query(None), request_id: str | None = Query(None)) -> dict[str, Any]:
+    try:
+        deleted = DEFAULT_PROJECT_STORE.hard_delete(
+            request_id=request_id or f"req_{uuid4().hex}",
+            project_id=project_id,
+            user_id=user_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return {"status": "deleted", **deleted}
 
 
 @app.get("/v1/projects/{project_id}/compare")
