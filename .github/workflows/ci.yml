@@ -42,3 +42,13 @@ jobs:
 
       - name: Enforce per-module coverage thresholds
         run: python tests/ci/check_coverage_thresholds.py
+
+      - name: Run evaluation suite
+        run: python scripts/run_evaluation_suite.py
+
+      - name: Drift check (non-blocking)
+        continue-on-error: true
+        run: python tests/ci/check_evaluation_drift.py
+
+      - name: Drift check (blocking)
+        run: python tests/ci/check_evaluation_drift.py --strict

@@ -38,3 +38,16 @@ flowchart TD
    - dans `scene_enriched.metadata.recommendation`,
    - et dans `scene_enriched.provider_trace` comme trace de décision.
 5. Au run suivant, la même entrée feedback normalisée mène à la même recommandation (tests de non-régression).
+
+
+## Protocole d’évaluation (build-to-build)
+
+- Dataset versionné: `evaluation/datasets/prompts_v1.jsonl` (JSONL: `id`, `prompt`, `expected_language`, `tags`).
+- Runner: `python scripts/run_evaluation_suite.py` exécute les prompts en batch et produit:
+  - `outputs/evaluation/eval_report_<YYYYMMDD>.json`
+  - `outputs/evaluation/eval_report_latest.json`
+- Métriques agrégées suivies: `avg_latency_ms`, `p95_latency_ms`, `avg_cost_estimate`, `avg_quality_score`.
+- Comparaison build vs baseline: `python tests/ci/check_evaluation_drift.py`
+  - **non bloquant** en mode standard (warning si dérive)
+  - **bloquant** avec `--strict`
+- Baseline de référence CI: `tests/ci/eval_baseline.json` (à recalibrer lors de changement modèle/fournisseur).
