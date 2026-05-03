@@ -34,6 +34,9 @@ class UIRequestHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def do_GET(self) -> None:  # noqa: N802
+        if self.path.startswith("/api/projects/") and API_MODE:
+            self._proxy_api_get(self.path.removeprefix("/api"))
+            return
         if self.path in {"/", "/index.html"}:
             self.path = "/assets/ui_prototype/index.html"
         return super().do_GET()
@@ -47,6 +50,9 @@ class UIRequestHandler(SimpleHTTPRequestHandler):
             return
         if self.path == "/api/feedback":
             self._write_record(FEEDBACK_FILE, kind="feedback")
+            return
+        if self.path.startswith("/api/projects/") and self.path.endswith("/replay") and API_MODE:
+            self._proxy_api_post(self.path.removeprefix("/api"))
             return
         self.send_error(HTTPStatus.NOT_FOUND, "Endpoint non supporté")
 
@@ -73,6 +79,25 @@ class UIRequestHandler(SimpleHTTPRequestHandler):
             self._send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "error": detail})
         except urllib.error.URLError as exc:
             self._send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "error": str(exc.reason)})
+
+    def _proxy_api_get(self, api_path: str) -> None:
+        target = f"{API_BASE_URL}{api_path}"
+        try:
+            with urllib.request.urlopen(target, timeout=20) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            self._send_json(HTTPStatus.OK, body)
+        except urllib.error.HTTPError as exc:
+            self._send_json(HTTPStatus.BAD_GATEWAY, {"error": exc.read().decode("utf-8")})
+
+    def _proxy_api_post(self, api_path: str) -> None:
+        target = f"{API_BASE_URL}{api_path}"
+        req = urllib.request.Request(target, data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            self._send_json(HTTPStatus.OK, body)
+        except urllib.error.HTTPError as exc:
+            self._send_json(HTTPStatus.BAD_GATEWAY, {"error": exc.read().decode("utf-8")})
 
     def _read_json_payload(self) -> dict[str, Any]:
         content_length = int(self.headers.get("Content-Length", "0"))
