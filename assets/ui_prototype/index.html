@@ -149,6 +149,22 @@
         </form>
         <p class="status" id="feedback-status">Aucun feedback enregistré.</p>
       </section>
+      <section class="card">
+        <h2>4) Historique du projet et comparaison</h2>
+        <div class="grid">
+          <div><label for="project-id">Project ID</label><input id="project-id" placeholder="prj_xxx" /></div>
+          <div><button id="load-history" type="button">Charger historique</button></div>
+        </div>
+        <p class="status" id="history-status">Aucun historique chargé.</p>
+        <pre id="history-output" style="white-space:pre-wrap;background:#f0f4ff;padding:10px;border-radius:8px;"></pre>
+        <div class="grid">
+          <div><label for="compare-left">Generation A</label><input id="compare-left" /></div>
+          <div><label for="compare-right">Generation B</label><input id="compare-right" /></div>
+        </div>
+        <button id="compare-generations" type="button" style="margin-top:10px;">Comparer</button>
+        <pre id="compare-output" style="white-space:pre-wrap;background:#f6f8fa;padding:10px;border-radius:8px;"></pre>
+      </section>
+
     </main>
 
     <script>
@@ -160,6 +176,14 @@
       const video = document.getElementById("final-video");
       const videoSource = document.getElementById("video-source");
       const videoStatus = document.getElementById("video-status");
+      const projectIdInput = document.getElementById("project-id");
+      const loadHistoryButton = document.getElementById("load-history");
+      const historyStatus = document.getElementById("history-status");
+      const historyOutput = document.getElementById("history-output");
+      const compareLeft = document.getElementById("compare-left");
+      const compareRight = document.getElementById("compare-right");
+      const compareButton = document.getElementById("compare-generations");
+      const compareOutput = document.getElementById("compare-output");
 
       generationForm.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -216,6 +240,34 @@
         const body = await response.json();
         feedbackStatus.textContent = `Feedback enregistré (${body.record_id}) dans ${body.exchange_file}`;
       });
+
+      loadHistoryButton.addEventListener("click", async () => {
+        const projectId = projectIdInput.value.trim();
+        if (!projectId) return;
+        const response = await fetch(`/api/projects/${projectId}/generations`);
+        if (!response.ok) {
+          historyStatus.textContent = "Erreur chargement historique";
+          return;
+        }
+        const body = await response.json();
+        historyStatus.textContent = `${body.count} génération(s) trouvée(s)`;
+        historyOutput.textContent = JSON.stringify(body, null, 2);
+      });
+
+      compareButton.addEventListener("click", async () => {
+        const projectId = projectIdInput.value.trim();
+        const left = compareLeft.value.trim();
+        const right = compareRight.value.trim();
+        if (!projectId || !left || !right) return;
+        const response = await fetch(`/api/projects/${projectId}/compare?left=${encodeURIComponent(left)}&right=${encodeURIComponent(right)}`);
+        if (!response.ok) {
+          compareOutput.textContent = "Erreur comparaison";
+          return;
+        }
+        const body = await response.json();
+        compareOutput.textContent = JSON.stringify(body, null, 2);
+      });
+
     </script>
   </body>
 </html>

@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 
+from src.core.project_store import DEFAULT_PROJECT_STORE
 from src.core.schema_validator import (
     NarrativeValidationError,
     SCHEMAS_DIR,
@@ -23,7 +24,7 @@ def _build_minimal_narrative(*, request_id: str, prompt: str) -> dict[str, Any]:
         "schema_version": "narrative.v1",
         "input": {"prompt": prompt, "duration_sec": 30, "style": "cinematic", "language": "fr"},
         "output": {
-            "synopsis": "Synopsis généré par API prototype.",
+            "synopsis": f"Synopsis généré par API prototype: {prompt[:80]}",
             "characters": [{"id": "char_1", "name": "Narrateur", "role": "protagonist", "description": "Voix guide."}],
             "scenes": [{"id": "scene_1", "summary": "Introduction du sujet.", "duration_sec": 30}],
             "shots": [{"id": "shot_1", "scene_id": "scene_1", "description": "Plan large narratif", "duration_sec": 4.0}],
@@ -61,13 +62,30 @@ def create_generation(payload: dict[str, Any]) -> dict[str, Any]:
     except NarrativeValidationError as exc:
         raise HTTPException(status_code=500, detail=f"Réponse invalide: {exc}") from exc
 
+    generation = DEFAULT_PROJECT_STORE.create_generation(
+        prompt=prompt.strip(),
+        narrative=narrative,
+        project_id=payload.get("project_id"),
+        metadata={"status": "succeeded"},
+        artifacts={"scene": f"outputs/{request_id}/scene.json", "final_video": "outputs/final/final_video.mp4"},
+    )
+
     _REQUESTS[request_id] = {
         "request_id": request_id,
         "status": "succeeded",
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "project_id": generation.project_id,
+        "generation_id": generation.generation_id,
+        "version": generation.version,
         "narrative": narrative,
     }
-    return {"request_id": request_id, "status": "accepted"}
+    return {
+        "request_id": request_id,
+        "status": "accepted",
+        "project_id": generation.project_id,
+        "generation_id": generation.generation_id,
+        "version": generation.version,
+    }
 
 
 @app.get("/v1/generations/{request_id}")
@@ -76,3 +94,45 @@ def get_generation(request_id: str) -> dict[str, Any]:
     if item is None:
         raise HTTPException(status_code=404, detail="request_id inconnu")
     return item
+
+
+@app.get("/v1/projects/{project_id}/generations")
+def list_project_generations(project_id: str) -> dict[str, Any]:
+    generations = DEFAULT_PROJECT_STORE.list_generations(project_id)
+    return {
+        "project_id": project_id,
+        "count": len(generations),
+        "items": [
+            {
+                "generation_id": g.generation_id,
+                "version": g.version,
+                "created_at": g.created_at,
+                "prompt": g.prompt,
+                "artifacts": g.artifacts,
+            }
+            for g in generations
+        ],
+    }
+
+
+@app.post("/v1/projects/{project_id}/generations/{generation_id}/replay")
+def replay_generation(project_id: str, generation_id: str) -> dict[str, Any]:
+    source = DEFAULT_PROJECT_STORE.get_generation(generation_id)
+    if source is None or source.project_id != project_id:
+        raise HTTPException(status_code=404, detail="generation inconnue pour ce projet")
+    replay = DEFAULT_PROJECT_STORE.create_generation(
+        prompt=source.prompt,
+        narrative=source.narrative,
+        project_id=project_id,
+        metadata={"replay_of": generation_id},
+        artifacts=source.artifacts,
+    )
+    return {"project_id": project_id, "generation_id": replay.generation_id, "version": replay.version, "replay_of": generation_id}
+
+
+@app.get("/v1/projects/{project_id}/compare")
+def compare_generations(project_id: str, left: str = Query(...), right: str = Query(...)) -> dict[str, Any]:
+    try:
+        return DEFAULT_PROJECT_STORE.compare_generations(project_id, left, right)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
