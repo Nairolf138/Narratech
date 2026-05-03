@@ -50,6 +50,54 @@ Le rapport `security_compliance_report.json` indique explicitement:
 
 Si un check échoue, le pipeline est interrompu.
 
+## Audit trail immuable (actions sensibles)
+
+Chaque action sensible est enregistrée dans un journal append-only chaîné par hash:
+
+- `generation`
+- `export`
+- `hard_delete`
+
+Champs obligatoires par événement:
+
+- `request_id`
+- `occurred_at_utc` (ISO-8601 UTC)
+- `project_id`
+- `generation_id` (si applicable)
+- `previous_hash` + `event_hash` (intégrité/immutabilité)
+
+Procédure d'audit:
+
+1. Vérifier la présence de `request_id` et du timestamp UTC pour chaque événement.
+2. Vérifier le chaînage `previous_hash -> event_hash` sur toute la séquence.
+3. Vérifier la présence d'un événement `export` avant diffusion publique.
+4. Vérifier la présence d'un événement `hard_delete` pour toute demande de purge complète.
+
+## Politique de rétention configurable
+
+La politique de rétention est configurable au runtime:
+
+- `artifact_retention_days`: durée de conservation des artefacts de génération.
+- `log_retention_days`: durée de conservation des logs d'audit/compliance.
+
+Application:
+
+- Au-delà de la fenêtre d'artefacts, les références d'artefacts sont supprimées des index.
+- Au-delà de la fenêtre de logs, les événements d'audit sont purgés selon la politique définie.
+
+## Workflow de suppression complète (hard delete)
+
+Suppression contrôlée par projet/utilisateur:
+
+1. Recevoir une demande de suppression avec `project_id`, `request_id` et (optionnel) `user_id`.
+2. Vérifier l'autorisation si un propriétaire utilisateur est défini.
+3. Supprimer définitivement:
+   - enregistrements de générations,
+   - index d'artefacts,
+   - références du projet.
+4. Écrire un événement d'audit `hard_delete` incluant le nombre d'objets supprimés.
+5. Exécuter les tests de conformité de non-référençabilité.
+
 ## Champs obligatoires de métadonnées (consentement/provenance)
 
 Les contrats narratifs acceptent un objet racine `metadata` avec:
